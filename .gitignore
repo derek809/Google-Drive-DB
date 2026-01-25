@@ -1,0 +1,24 @@
+# Secrets and config
+config.py
+.env
+.env.local
+
+# Database (contains personal learned data)
+mcp_learning.db
+
+# Local settings
+.claude/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Files folder
+files/
+files.zip
+
+# Windows
+*.lnk
+nul

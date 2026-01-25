@@ -1,0 +1,72 @@
+# MCP System - Quick Start Guide for Derek
+
+**Location:** `~/Documents/MCP/`  
+**Database:** `mcp_learning.db`  
+**Status:** ✅ Ready to use!
+
+---
+
+## 🎯 How to Use
+
+### In Claude Desktop, just tell me:
+
+**"Process this email with MCP:"**
+
+Then paste:
+- Subject line
+- Email body
+- Sender email
+- What you want me to do (e.g., "send w9")
+
+I'll handle the rest!
+
+---
+
+## 📊 Your Database Status
+
+```
+✅ 7 Patterns loaded (invoice, W9, payment, etc.)
+✅ 4 Templates ready (W9, payment, delegation, turnaround)
+✅ 3 Tools configured (Claude Project, Script, NetSuite)
+✅ 3 Safety rules active (FINRA, SEC, compliance)
+📚 5 Learning tables ready (empty, will learn from use)
+```
+
+---
+
+## 💡 Example Commands
+
+### Test the system:
+"Show me what patterns are in the MCP database"
+
+### Process an email:
+"Process this W9 request email with MCP"
+
+### Check what's been learned:
+"How many contacts has MCP learned about?"
+
+### View a template:
+"Show me the W9 template from MCP database"
+
+---
+
+## 🔧 Files in Your System
+
+- `mcp_learning.db` - Your database (132KB)
+- `orchestrator.py` - Main processor
+- `template_processor.py` - Draft generator
+- `process_email.py` - Simple interface
+- `test_suite.py` - Tests (run: `python3 test_suite.py`)
+
+---
+
+## 🚀 Next Steps
+
+1. ✅ Database set up
+2. ⏳ Process your first email
+3. ⏳ Add your wiring instructions to W9 template
+4. ⏳ Start learning from your emails
+
+---
+
+**Your MCP system is ready! Just tell me about an email to process.** 🎉
