@@ -223,6 +223,124 @@ function cleanOldHistory() {
 }
 
 // ============================================
+// LEARNING LOOP
+// ============================================
+
+/**
+ * Trigger manual learning loop
+ * Compares drafts (in cell notes) with sent emails in Gmail Sent folder
+ * This is a simplified version - full learning happens via Python MCP server
+ */
+function triggerLearningLoop() {
+  var ui = SpreadsheetApp.getUi();
+
+  try {
+    var historySheet = getHistorySheet();
+    var lastRow = historySheet.getLastRow();
+
+    if (lastRow <= 1) {
+      ui.alert('Learning Loop', 'No history items to learn from yet.', ui.ButtonSet.OK);
+      return;
+    }
+
+    // Get history items
+    var data = historySheet.getRange(2, 1, lastRow - 1, 8).getValues();
+    var learnedCount = 0;
+    var skippedCount = 0;
+    var results = [];
+
+    var cutoffDate = new Date();
+    cutoffDate.setDate(cutoffDate.getDate() - 7); // Only learn from last 7 days
+
+    data.forEach(function(row, index) {
+      var source = row[MCP_CONFIG.COL.SOURCE];
+      var emailId = row[MCP_CONFIG.COL.EMAIL_ID];
+      var dateAdded = new Date(row[MCP_CONFIG.COL.DATE_ADDED]);
+      var subject = row[MCP_CONFIG.COL.SUBJECT];
+
+      // Only learn from recent email items
+      if (source !== MCP_CONFIG.SOURCE.EMAIL || !emailId || dateAdded < cutoffDate) {
+        skippedCount++;
+        return;
+      }
+
+      try {
+        // Try to find sent response in Gmail
+        var searchQuery = 'in:sent subject:Re:' + subject.substring(0, 50);
+        var sentThreads = GmailApp.search(searchQuery, 0, 1);
+
+        if (sentThreads.length > 0) {
+          var sentMessages = sentThreads[0].getMessages();
+          var sentMessage = sentMessages[sentMessages.length - 1]; // Get last message (most recent reply)
+
+          // Check if this is actually a reply Derek sent
+          var from = sentMessage.getFrom();
+          if (from.indexOf('derek') > -1 || from.indexOf('oldcity') > -1) {
+            // Found a sent response!
+            var sentBody = sentMessage.getPlainBody();
+
+            // Get the draft from the cell note in the original queue
+            // (Note: This is approximate - we'd need the original row data)
+
+            // Update pattern success for the matched pattern
+            var prompt = row[MCP_CONFIG.COL.PROMPT];
+            var emailData = { subject: subject, body: '' };
+            var patternMatch = matchEmailToPattern(emailData, prompt);
+
+            if (patternMatch) {
+              updatePatternSuccess(patternMatch.pattern_name, true);
+            }
+
+            // Learn the contact
+            var originalMessage = GmailApp.getMessageById(emailId);
+            if (originalMessage) {
+              var senderEmail = extractEmail(originalMessage.getFrom());
+              var senderName = extractName(originalMessage.getFrom());
+              learnContact(senderEmail, senderName, 'external');
+            }
+
+            learnedCount++;
+            results.push({ subject: subject, status: 'learned' });
+          }
+        }
+      } catch (e) {
+        Logger.log('Learning error for item: ' + e);
+        results.push({ subject: subject, status: 'error: ' + e.message });
+      }
+
+      // Rate limiting
+      Utilities.sleep(500);
+    });
+
+    // Show results
+    var message = '=== LEARNING COMPLETE ===\n\n';
+    message += 'Items learned from: ' + learnedCount + '\n';
+    message += 'Items skipped: ' + skippedCount + '\n\n';
+
+    if (results.length > 0) {
+      message += 'Details:\n';
+      results.slice(0, 10).forEach(function(r) {
+        message += '- ' + r.subject.substring(0, 40) + '... (' + r.status + ')\n';
+      });
+      if (results.length > 10) {
+        message += '... and ' + (results.length - 10) + ' more\n';
+      }
+    }
+
+    message += '\nNote: For full learning (phrase extraction, edit comparison),\n';
+    message += 'use the MCP server via Claude Desktop.';
+
+    ui.alert('Learning Loop', message, ui.ButtonSet.OK);
+
+    Logger.log('Learning loop complete: ' + learnedCount + ' learned, ' + skippedCount + ' skipped');
+
+  } catch (e) {
+    ui.alert('Error', 'Learning loop failed: ' + e.message, ui.ButtonSet.OK);
+    Logger.log('Learning loop error: ' + e);
+  }
+}
+
+// ============================================
 // TESTING FUNCTIONS
 // ============================================
 

@@ -32,6 +32,20 @@ except ImportError:
     print("Or: pip install anthropic[mcp]")
     exit(1)
 
+# Google Sheets integration
+try:
+    from sheets_client import GoogleSheetsClient, SheetsClientError, GOOGLE_API_AVAILABLE
+    SHEETS_AVAILABLE = GOOGLE_API_AVAILABLE
+except ImportError:
+    SHEETS_AVAILABLE = False
+
+# Learning loop integration
+try:
+    from learning_loop import LearningLoop
+    LEARNING_AVAILABLE = True
+except ImportError:
+    LEARNING_AVAILABLE = False
+
 # Get database path
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_PATH = os.path.join(SCRIPT_DIR, "mcp_learning.db")
@@ -54,6 +68,163 @@ def get_db():
 def dict_from_row(row):
     """Convert SQLite row to dictionary."""
     return dict(zip(row.keys(), row)) if row else None
+
+
+def _get_sheets_tools() -> list:
+    """Return Google Sheets tools if available."""
+    if not SHEETS_AVAILABLE:
+        return []
+
+    return [
+        Tool(
+            name="sheets_read_range",
+            description="Read data from a Google Sheets range. Returns cell values as a 2D array.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "Google Sheets spreadsheet ID (from the URL after /d/)"
+                    },
+                    "range": {
+                        "type": "string",
+                        "description": "A1 notation range (e.g., 'Sheet1!A1:D10' or 'Tasks!A:Z')"
+                    },
+                    "value_render_option": {
+                        "type": "string",
+                        "enum": ["FORMATTED_VALUE", "UNFORMATTED_VALUE", "FORMULA"],
+                        "description": "How values should be rendered (default: FORMATTED_VALUE)"
+                    }
+                },
+                "required": ["spreadsheet_id", "range"]
+            }
+        ),
+        Tool(
+            name="sheets_write_range",
+            description="Write data to a Google Sheets range. Overwrites existing data in the specified range.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "Google Sheets spreadsheet ID"
+                    },
+                    "range": {
+                        "type": "string",
+                        "description": "A1 notation range to write to (e.g., 'Sheet1!A1:D5')"
+                    },
+                    "values": {
+                        "type": "array",
+                        "items": {"type": "array", "items": {}},
+                        "description": "2D array of values to write [[row1], [row2], ...]"
+                    },
+                    "value_input_option": {
+                        "type": "string",
+                        "enum": ["RAW", "USER_ENTERED"],
+                        "description": "How input should be interpreted (default: USER_ENTERED for formula support)"
+                    }
+                },
+                "required": ["spreadsheet_id", "range", "values"]
+            }
+        ),
+        Tool(
+            name="sheets_append_rows",
+            description="Append rows to the end of a Google Sheet table. Automatically finds the next empty row.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "Google Sheets spreadsheet ID"
+                    },
+                    "range": {
+                        "type": "string",
+                        "description": "The table range to append to (e.g., 'Sheet1!A:D' or 'EmailLog')"
+                    },
+                    "values": {
+                        "type": "array",
+                        "items": {"type": "array", "items": {}},
+                        "description": "2D array of rows to append [[row1], [row2], ...]"
+                    }
+                },
+                "required": ["spreadsheet_id", "range", "values"]
+            }
+        ),
+        Tool(
+            name="sheets_search",
+            description="Search for values in a Google Sheet. Returns matching rows with row numbers.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "Google Sheets spreadsheet ID"
+                    },
+                    "range": {
+                        "type": "string",
+                        "description": "Range to search within (e.g., 'Sheet1!A:Z')"
+                    },
+                    "query": {
+                        "type": "string",
+                        "description": "Text to search for (case-insensitive partial match)"
+                    },
+                    "column_index": {
+                        "type": "integer",
+                        "description": "Optional: limit search to specific column (0-indexed)"
+                    },
+                    "max_results": {
+                        "type": "integer",
+                        "description": "Maximum results to return (default: 50)"
+                    }
+                },
+                "required": ["spreadsheet_id", "range", "query"]
+            }
+        ),
+        Tool(
+            name="sheets_get_metadata",
+            description="Get spreadsheet metadata including sheet names, dimensions, and properties.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "Google Sheets spreadsheet ID"
+                    }
+                },
+                "required": ["spreadsheet_id"]
+            }
+        ),
+        Tool(
+            name="sheets_batch_update",
+            description="Perform multiple read/write/append operations in a single API call for efficiency.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "spreadsheet_id": {
+                        "type": "string",
+                        "description": "Google Sheets spreadsheet ID"
+                    },
+                    "operations": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "type": {
+                                    "type": "string",
+                                    "enum": ["read", "write", "append"]
+                                },
+                                "range": {"type": "string"},
+                                "values": {"type": "array"}
+                            },
+                            "required": ["type", "range"]
+                        },
+                        "description": "Array of operations to perform"
+                    }
+                },
+                "required": ["spreadsheet_id", "operations"]
+            }
+        )
+    ]
 
 
 # ============================================
@@ -199,7 +370,7 @@ async def list_tools() -> list[Tool]:
                 "required": ["email", "name"]
             }
         )
-    ]
+    ] + _get_sheets_tools()
 
 
 # ============================================
@@ -226,6 +397,19 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         return await get_stats_tool()
     elif name == "learn_contact":
         return await learn_contact_tool(arguments)
+    # Google Sheets tools
+    elif name == "sheets_read_range":
+        return await sheets_read_range_tool(arguments)
+    elif name == "sheets_write_range":
+        return await sheets_write_range_tool(arguments)
+    elif name == "sheets_append_rows":
+        return await sheets_append_rows_tool(arguments)
+    elif name == "sheets_search":
+        return await sheets_search_tool(arguments)
+    elif name == "sheets_get_metadata":
+        return await sheets_get_metadata_tool(arguments)
+    elif name == "sheets_batch_update":
+        return await sheets_batch_update_tool(arguments)
     else:
         return [TextContent(type="text", text=f"Unknown tool: {name}")]
 
@@ -466,70 +650,95 @@ async def get_template_tool(args: dict) -> list[TextContent]:
 
 
 async def record_edit_tool(args: dict) -> list[TextContent]:
-    """Record edits for learning."""
+    """Record edits for learning using the full LearningLoop system."""
     try:
-        conn = get_db()
-        cursor = conn.cursor()
-
         response_id = args.get("response_id")
         final_text = args.get("final_text")
         was_sent = args.get("was_sent", True)
 
-        # Get original draft
-        cursor.execute("""
-            SELECT draft_text, confidence_score FROM responses WHERE id = ?
-        """, (response_id,))
-        row = cursor.fetchone()
+        if not response_id:
+            return [TextContent(type="text", text="Error: response_id is required")]
 
-        if not row:
+        # Use LearningLoop if available for full learning (phrase extraction, pattern learning, etc.)
+        if LEARNING_AVAILABLE:
+            with LearningLoop(DB_PATH) as learning:
+                # This does everything: edit calculation, phrase extraction,
+                # writing pattern learning, template success updates
+                learning_results = learning.compare_and_learn(
+                    response_id=response_id,
+                    final_text=final_text,
+                    was_sent=was_sent
+                )
+
+                return [TextContent(type="text", text=json.dumps({
+                    "status": "recorded",
+                    "outcome": learning_results.get("outcome", "unknown"),
+                    "edit_percentage": f"{learning_results.get('edit_percentage', 0):.1f}%",
+                    "was_sent": was_sent,
+                    "changes_detected": learning_results.get("changes_detected", 0),
+                    "patterns_learned": learning_results.get("patterns_learned", []),
+                    "learning_impact": "Full learning applied: phrases extracted, patterns updated, template stats refreshed"
+                }, indent=2))]
+        else:
+            # Fallback: basic recording without full learning
+            conn = get_db()
+            cursor = conn.cursor()
+
+            # Get original draft
+            cursor.execute("""
+                SELECT draft_text, confidence_score FROM responses WHERE id = ?
+            """, (response_id,))
+            row = cursor.fetchone()
+
+            if not row:
+                conn.close()
+                return [TextContent(type="text", text=f"Response not found: {response_id}")]
+
+            draft_text = row["draft_text"]
+
+            # Calculate edit percentage (basic)
+            if draft_text and final_text:
+                draft_words = set(draft_text.lower().split())
+                final_words = set(final_text.lower().split())
+                added = final_words - draft_words
+                removed = draft_words - final_words
+                changed = len(added) + len(removed)
+                total = max(len(draft_words), len(final_words))
+                edit_pct = (changed / total * 100) if total > 0 else 0
+            else:
+                edit_pct = 100.0
+
+            # Classify outcome
+            if not was_sent:
+                outcome = "deleted"
+            elif edit_pct < 10:
+                outcome = "success"
+            elif edit_pct < 30:
+                outcome = "good"
+            elif edit_pct < 50:
+                outcome = "needs_work"
+            else:
+                outcome = "failure"
+
+            # Update response
+            cursor.execute("""
+                UPDATE responses
+                SET final_text = ?, sent = ?, user_edited = 1,
+                    edit_percentage = ?, sent_at = ?
+                WHERE id = ?
+            """, (final_text, 1 if was_sent else 0, edit_pct,
+                  datetime.now().isoformat(), response_id))
+
+            conn.commit()
             conn.close()
-            return [TextContent(type="text", text=f"Response not found: {response_id}")]
 
-        draft_text = row["draft_text"]
-
-        # Calculate edit percentage
-        if draft_text and final_text:
-            draft_words = set(draft_text.lower().split())
-            final_words = set(final_text.lower().split())
-            added = final_words - draft_words
-            removed = draft_words - final_words
-            changed = len(added) + len(removed)
-            total = max(len(draft_words), len(final_words))
-            edit_pct = (changed / total * 100) if total > 0 else 0
-        else:
-            edit_pct = 100.0
-
-        # Classify outcome
-        if not was_sent:
-            outcome = "deleted"
-        elif edit_pct < 10:
-            outcome = "success"
-        elif edit_pct < 30:
-            outcome = "good"
-        elif edit_pct < 50:
-            outcome = "needs_work"
-        else:
-            outcome = "failure"
-
-        # Update response
-        cursor.execute("""
-            UPDATE responses
-            SET final_text = ?, sent = ?, user_edited = 1,
-                edit_percentage = ?, sent_at = ?
-            WHERE id = ?
-        """, (final_text, 1 if was_sent else 0, edit_pct,
-              datetime.now().isoformat(), response_id))
-
-        conn.commit()
-        conn.close()
-
-        return [TextContent(type="text", text=json.dumps({
-            "status": "recorded",
-            "outcome": outcome,
-            "edit_percentage": f"{edit_pct:.1f}%",
-            "was_sent": was_sent,
-            "learning_impact": "System will use this to improve future drafts"
-        }, indent=2))]
+            return [TextContent(type="text", text=json.dumps({
+                "status": "recorded",
+                "outcome": outcome,
+                "edit_percentage": f"{edit_pct:.1f}%",
+                "was_sent": was_sent,
+                "learning_impact": "Basic recording only (learning_loop.py not available)"
+            }, indent=2))]
 
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
@@ -675,6 +884,185 @@ async def learn_contact_tool(args: dict) -> list[TextContent]:
             }
         }, indent=2))]
 
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+# ============================================
+# GOOGLE SHEETS TOOL IMPLEMENTATIONS
+# ============================================
+
+async def sheets_read_range_tool(args: dict) -> list[TextContent]:
+    """Read data from a Google Sheets range."""
+    if not SHEETS_AVAILABLE:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Google Sheets integration not available",
+            "install": "pip install google-auth google-api-python-client"
+        }, indent=2))]
+
+    try:
+        with GoogleSheetsClient() as client:
+            result = client.read_range(
+                args["spreadsheet_id"],
+                args["range"],
+                args.get("value_render_option", "FORMATTED_VALUE")
+            )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except SheetsClientError as e:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+async def sheets_write_range_tool(args: dict) -> list[TextContent]:
+    """Write data to a Google Sheets range."""
+    if not SHEETS_AVAILABLE:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Google Sheets integration not available"
+        }, indent=2))]
+
+    try:
+        with GoogleSheetsClient() as client:
+            result = client.write_range(
+                args["spreadsheet_id"],
+                args["range"],
+                args["values"],
+                args.get("value_input_option", "USER_ENTERED")
+            )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except SheetsClientError as e:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+async def sheets_append_rows_tool(args: dict) -> list[TextContent]:
+    """Append rows to a Google Sheet."""
+    if not SHEETS_AVAILABLE:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Google Sheets integration not available"
+        }, indent=2))]
+
+    try:
+        with GoogleSheetsClient() as client:
+            result = client.append_rows(
+                args["spreadsheet_id"],
+                args["range"],
+                args["values"]
+            )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except SheetsClientError as e:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+async def sheets_search_tool(args: dict) -> list[TextContent]:
+    """Search for values in a Google Sheet."""
+    if not SHEETS_AVAILABLE:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Google Sheets integration not available"
+        }, indent=2))]
+
+    try:
+        with GoogleSheetsClient() as client:
+            result = client.search(
+                args["spreadsheet_id"],
+                args["range"],
+                args["query"],
+                args.get("column_index"),
+                args.get("max_results", 50)
+            )
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except SheetsClientError as e:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+async def sheets_get_metadata_tool(args: dict) -> list[TextContent]:
+    """Get spreadsheet metadata."""
+    if not SHEETS_AVAILABLE:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Google Sheets integration not available"
+        }, indent=2))]
+
+    try:
+        with GoogleSheetsClient() as client:
+            result = client.get_metadata(args["spreadsheet_id"])
+        return [TextContent(type="text", text=json.dumps(result, indent=2))]
+    except SheetsClientError as e:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, indent=2))]
+    except Exception as e:
+        return [TextContent(type="text", text=f"Error: {str(e)}")]
+
+
+async def sheets_batch_update_tool(args: dict) -> list[TextContent]:
+    """Perform batch operations on a spreadsheet."""
+    if not SHEETS_AVAILABLE:
+        return [TextContent(type="text", text=json.dumps({
+            "error": "Google Sheets integration not available"
+        }, indent=2))]
+
+    try:
+        with GoogleSheetsClient() as client:
+            results = []
+
+            for op in args["operations"]:
+                op_type = op["type"]
+
+                if op_type == "read":
+                    result = client.read_range(
+                        args["spreadsheet_id"],
+                        op["range"]
+                    )
+                elif op_type == "write":
+                    result = client.write_range(
+                        args["spreadsheet_id"],
+                        op["range"],
+                        op.get("values", [])
+                    )
+                elif op_type == "append":
+                    result = client.append_rows(
+                        args["spreadsheet_id"],
+                        op["range"],
+                        op.get("values", [])
+                    )
+                else:
+                    result = {"error": f"Unknown operation type: {op_type}"}
+
+                results.append({
+                    "operation": op_type,
+                    "range": op["range"],
+                    "result": result
+                })
+
+            return [TextContent(type="text", text=json.dumps({
+                "success": True,
+                "operations_count": len(results),
+                "results": results
+            }, indent=2))]
+
+    except SheetsClientError as e:
+        return [TextContent(type="text", text=json.dumps({
+            "success": False,
+            "error": str(e)
+        }, indent=2))]
     except Exception as e:
         return [TextContent(type="text", text=f"Error: {str(e)}")]
 

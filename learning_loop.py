@@ -206,21 +206,47 @@ class LearningLoop:
     def _is_useful_phrase(self, phrase: str) -> bool:
         """Check if phrase is worth learning."""
         # Filter out common/useless phrases
-        skip_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have'}
+        skip_words = {'the', 'and', 'for', 'with', 'this', 'that', 'from', 'have',
+                      'a', 'an', 'to', 'of', 'in', 'is', 'it', 'be', 'are', 'was'}
         words = phrase.split()
-        
-        # Must have at least one meaningful word
-        if not any(w not in skip_words for w in words):
+
+        # Must have at least 2 meaningful words
+        meaningful_words = [w for w in words if w not in skip_words]
+        if len(meaningful_words) < 2:
             return False
-        
-        # Should have some characteristic phrases
-        useful_starts = ['just wanted', 'please find', 'looping in', 'let me know',
-                        'i wanted to', 'thanks for', 'happy to', 'feel free']
-        
+
+        # Known useful phrase starters (high confidence)
+        useful_starts = [
+            'just wanted', 'please find', 'looping in', 'let me know',
+            'i wanted to', 'thanks for', 'happy to', 'feel free',
+            'as discussed', 'per our', 'following up', 'circling back',
+            'wanted to check', 'quick note', 'heads up', 'fyi',
+            'appreciate your', 'looking forward', 'sounds good',
+            'will do', 'got it', 'makes sense', 'good point',
+            'i can', 'we can', 'i will', 'we will',
+            'please let', 'if you', 'when you', 'once you',
+            'attached is', 'attached are', 'see attached', 'please see'
+        ]
+
         if any(phrase.startswith(start) for start in useful_starts):
             return True
-        
-        return False
+
+        # Also learn phrases with business/finance keywords
+        business_keywords = ['payment', 'invoice', 'wire', 'transfer', 'confirm',
+                             'approve', 'review', 'update', 'schedule', 'meeting',
+                             'deadline', 'urgent', 'priority', 'completed', 'pending']
+        if any(kw in phrase for kw in business_keywords):
+            return True
+
+        # Learn phrases with action verbs
+        action_verbs = ['send', 'provide', 'share', 'forward', 'submit', 'complete',
+                        'review', 'approve', 'confirm', 'schedule', 'arrange']
+        if any(phrase.startswith(verb) or f' {verb} ' in phrase for verb in action_verbs):
+            return True
+
+        # Default: accept phrases with enough meaningful content
+        # (less restrictive than before)
+        return len(meaningful_words) >= 3
     
     # ==================
     # LEARNING STORAGE

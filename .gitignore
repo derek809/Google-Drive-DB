@@ -22,3 +22,6 @@ files.zip
 # Windows
 *.lnk
 nul
+
+# Google Drive temp files
+.tmp.driveupload/

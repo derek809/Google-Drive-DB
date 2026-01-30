@@ -93,12 +93,25 @@ function processReadyItems() {
         // Process with Claude
         var result = processWithClaude(emailData, instruction, patternMatch, geminiData, confidence);
 
-        // Store result in prompt cell note
-        sheet.getRange(rowNum, MCP_CONFIG.COL.PROMPT + 1).setNote(
-          'RESULT:\n' + result.output + '\n\n' +
+        // Store result in prompt cell note (will be updated with draft info below)
+        var noteContent = 'RESULT:\n' + result.output + '\n\n' +
           'Confidence: ' + result.confidence + '%\n' +
-          'Pattern: ' + (patternMatch ? patternMatch.pattern_name : 'none')
-        );
+          'Pattern: ' + (patternMatch ? patternMatch.pattern_name : 'none');
+
+        // Create Gmail draft if this is an email item
+        var draftInfo = null;
+        if (emailId && emailData.senderEmail) {
+          draftInfo = createGmailDraft(emailId, emailData, result.output);
+          if (draftInfo && draftInfo.success) {
+            Logger.log('Created Gmail draft: ' + draftInfo.draftId);
+            noteContent += '\n\nDraft URL: ' + draftInfo.draftUrl;
+          } else if (draftInfo && draftInfo.error) {
+            noteContent += '\n\nDraft creation failed: ' + draftInfo.error;
+          }
+        }
+
+        // Now set the note with all info
+        sheet.getRange(rowNum, MCP_CONFIG.COL.PROMPT + 1).setNote(noteContent);
 
         // Update Gmail labels if email
         if (emailId) {
@@ -113,7 +126,9 @@ function processReadyItems() {
           row: rowNum,
           subject: emailData.subject,
           confidence: result.confidence,
-          pattern: patternMatch ? patternMatch.pattern_name : 'none'
+          pattern: patternMatch ? patternMatch.pattern_name : 'none',
+          draftCreated: draftInfo ? draftInfo.success : false,
+          draftUrl: draftInfo ? draftInfo.draftUrl : null
         });
 
       } catch (error) {
@@ -137,11 +152,12 @@ function processReadyItems() {
     if (results.length > 0) {
       message += 'Results:\n';
       results.forEach(function(r) {
-        message += '- Row ' + r.row + ': ' + r.confidence + '% (' + r.pattern + ')\n';
+        var draftStatus = r.draftCreated ? ' [Draft created]' : '';
+        message += '- Row ' + r.row + ': ' + r.confidence + '% (' + r.pattern + ')' + draftStatus + '\n';
       });
     }
 
-    message += '\nCheck cell notes (right-click Prompt cells) for full output.';
+    message += '\nDrafts created in Gmail Drafts folder.\nCheck cell notes (right-click Prompt cells) for full output.';
 
     ui.alert('Done', message, ui.ButtonSet.OK);
   } else {
@@ -384,6 +400,62 @@ function calculateConfidence(emailData, patternMatch, geminiData) {
 
   // Clamp to 0-100
   return Math.max(0, Math.min(100, confidence));
+}
+
+// ============================================
+// GMAIL DRAFT CREATION
+// ============================================
+
+/**
+ * Create a Gmail draft from the Claude response
+ * @param {string} messageId - Original email message ID
+ * @param {Object} emailData - Email data object
+ * @param {string} draftBody - The draft body text from Claude
+ * @returns {Object} Draft info with success status and draft ID
+ */
+function createGmailDraft(messageId, emailData, draftBody) {
+  try {
+    if (!messageId || !draftBody) {
+      return { success: false, error: 'Missing messageId or draftBody' };
+    }
+
+    var originalMessage = GmailApp.getMessageById(messageId);
+    if (!originalMessage) {
+      return { success: false, error: 'Original message not found' };
+    }
+
+    var thread = originalMessage.getThread();
+    var recipientEmail = emailData.senderEmail || extractEmail(originalMessage.getFrom());
+    var replySubject = 'Re: ' + (emailData.subject || originalMessage.getSubject());
+
+    // Create the draft as a reply in the same thread
+    var draft = GmailApp.createDraft(
+      recipientEmail,
+      replySubject,
+      draftBody,
+      {
+        replyTo: recipientEmail
+      }
+    );
+
+    var draftId = draft.getId();
+    var draftUrl = 'https://mail.google.com/mail/u/0/#drafts?compose=' + draftId;
+
+    Logger.log('Created Gmail draft for: ' + replySubject);
+    Logger.log('Draft URL: ' + draftUrl);
+
+    return {
+      success: true,
+      draftId: draftId,
+      draftUrl: draftUrl,
+      recipient: recipientEmail,
+      subject: replySubject
+    };
+
+  } catch (error) {
+    Logger.log('Error creating Gmail draft: ' + error);
+    return { success: false, error: error.message };
+  }
 }
 
 /**

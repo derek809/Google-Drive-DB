@@ -28,6 +28,7 @@ function createMenu() {
     .addItem('Process Ready Items', 'processReadyItems')
     .addItem('Archive Completed', 'archiveCompletedItems')
     .addSeparator()
+    .addItem('Trigger Learning', 'triggerLearningLoop')
     .addItem('Show Stats', 'showStats')
     .addSeparator()
     .addSubMenu(SpreadsheetApp.getUi().createMenu('API Keys')
