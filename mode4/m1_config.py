@@ -11,14 +11,25 @@ SETUP INSTRUCTIONS:
 
 import os
 
+# Load environment variables from .env file
+try:
+    from dotenv import load_dotenv
+    # Load from mode4/.env
+    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    load_dotenv(dotenv_path)
+except ImportError:
+    print("Warning: python-dotenv not installed. Install with: pip install python-dotenv")
+except Exception as e:
+    print(f"Warning: Could not load .env file: {e}")
+
 # ============================================
 # PATHS (Update for your M1 setup)
 # ============================================
 
-# Base directory for Mode 4 on M1
-BASE_DIR = os.path.expanduser("~/mode4")
+# Base directory for Mode 4 - use current script location
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Credentials directory
+# Credentials directory - in parent folder
 CREDENTIALS_DIR = os.path.join(BASE_DIR, "credentials")
 
 # Google Sheets service account JSON
@@ -41,7 +52,7 @@ LOG_PATH = os.path.join(BASE_DIR, "mode4.log")
 
 # The spreadsheet ID from your Google Sheet URL
 # URL format: https://docs.google.com/spreadsheets/d/SPREADSHEET_ID/edit
-SPREADSHEET_ID = "YOUR_SPREADSHEET_ID_HERE"
+SPREADSHEET_ID = os.getenv('SPREADSHEET_ID', 'YOUR_SPREADSHEET_ID_HERE')
 
 # Sheet names (must match what bootstrap_sync_sheets.py creates)
 PATTERNS_SHEET = "Patterns"
@@ -65,14 +76,15 @@ M1_STATUS_COLUMNS = {
 
 # Bot token from @BotFather
 # Get this by: 1) Open Telegram, 2) Search @BotFather, 3) /newbot, 4) Copy token
-TELEGRAM_BOT_TOKEN = "YOUR_BOT_TOKEN_HERE"
+TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN', 'YOUR_BOT_TOKEN_HERE')
 
 # Your Telegram user ID (for security - only respond to you)
 # Get this by: Send a message to @userinfobot on Telegram
-TELEGRAM_ALLOWED_USERS = []  # e.g., [123456789]
+_allowed_users_str = os.getenv('TELEGRAM_ALLOWED_USERS', '')
+TELEGRAM_ALLOWED_USERS = [int(x.strip()) for x in _allowed_users_str.strip('[]').split(',') if x.strip()] if _allowed_users_str else []
 
 # Chat ID to send notifications to
-TELEGRAM_ADMIN_CHAT_ID = None  # e.g., 123456789
+TELEGRAM_ADMIN_CHAT_ID = int(os.getenv('TELEGRAM_ADMIN_CHAT_ID')) if os.getenv('TELEGRAM_ADMIN_CHAT_ID') else None
 
 
 # ============================================
@@ -128,6 +140,25 @@ CLAUDE_MODEL = "claude-3-haiku-20240307"
 
 
 # ============================================
+# GEMINI API (for image/document analysis)
+# ============================================
+
+# Google Gemini API key
+# Get this from: https://aistudio.google.com/app/apikey
+# Can use either GEMINI_API_KEY or GOOGLE_API_KEY environment variable
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or os.getenv('GOOGLE_API_KEY', '')
+
+# Model to use for vision tasks (Flash is fast and cost-effective)
+GEMINI_MODEL = "gemini-2.0-flash"
+
+# Supported image types for analysis
+GEMINI_SUPPORTED_TYPES = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.heic', '.heif']
+
+# Max image size (in bytes) - 20MB limit for Gemini
+GEMINI_MAX_IMAGE_SIZE = 20 * 1024 * 1024
+
+
+# ============================================
 # DATABASE SETTINGS (Mode 4 SQLite)
 # ============================================
 
@@ -169,6 +200,55 @@ API_TIMEOUT_SECONDS = 30
 
 # Maximum emails to process in one batch
 MAX_BATCH_SIZE = 20
+
+
+# ============================================
+# NEW FEATURES CONFIGURATION
+# ============================================
+
+# SmartParser (Natural Language Parser)
+SMART_PARSER_ENABLED = True
+SMART_PARSER_MODEL = "qwen2.5:3b"  # Ollama model for parsing
+SMART_PARSER_FALLBACK = True  # Use regex fallback if LLM unavailable
+
+# ThreadSynthesizer
+THREAD_SYNTHESIZER_ENABLED = True
+THREAD_HISTORY_MAX_MESSAGES = 50  # Max messages to fetch per thread
+
+# ProactiveEngine
+PROACTIVE_ENGINE_ENABLED = True
+PROACTIVE_CHECK_INTERVAL = 2 * 60 * 60  # 2 hours in seconds
+PROACTIVE_MAX_SUGGESTIONS_PER_DAY = 1
+PROACTIVE_NO_REPLY_DAYS = 3  # Days before suggesting follow-up
+PROACTIVE_URGENT_HOURS = (15, 17)  # 3pm-5pm for urgent reminders
+PROACTIVE_DRAFT_UNSENT_DAYS = 2  # Days before reminding about unsent drafts
+PROACTIVE_MORNING_DIGEST_HOUR = 7  # 7am morning summary
+
+
+# ============================================
+# CONVERSATION MANAGER
+# ============================================
+
+# Enable conversational interface (natural language)
+CONVERSATION_ENABLED = True
+
+# Intent classification model (uses Ollama)
+CONVERSATION_INTENT_MODEL = OLLAMA_MODEL  # Reuse Ollama model for consistency
+
+# Context timeout (seconds) - how long to remember conversation
+CONVERSATION_CONTEXT_TIMEOUT = 30 * 60  # 30 minutes
+
+# Response style
+CONVERSATION_GREETING_STYLE = "friendly"  # friendly, brief, personality
+
+# Clarification behavior
+CONVERSATION_CLARIFICATION_MODE = "smart_assumptions"  # smart_assumptions, ask_always, interactive
+
+# Todo handling
+CONVERSATION_TODO_CONFIRM = False  # Just add it vs confirm first
+
+# Proactive suggestions
+CONVERSATION_PROACTIVE_SUGGESTIONS = True  # Offer suggestions for vague requests
 
 
 # ============================================
@@ -237,6 +317,8 @@ def print_config_status():
     print(f"  Allowed users: {len(TELEGRAM_ALLOWED_USERS)} configured")
     print(f"  Ollama model: {OLLAMA_MODEL}")
     print(f"  Claude API: {'SET' if ANTHROPIC_API_KEY else 'NOT SET (optional)'}")
+    print(f"  Gemini API: {'SET' if GEMINI_API_KEY else 'NOT SET (optional)'}")
+    print(f"  Gemini model: {GEMINI_MODEL}")
     print()
 
     errors = validate_config()

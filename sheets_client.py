@@ -9,7 +9,9 @@ Usage:
         data = client.read_range('spreadsheet_id', 'Sheet1!A1:D10')
         client.append_rows('spreadsheet_id', 'Sheet1!A:D', [['new', 'row', 'data']])
 """
-
+from googleapiclient.discovery import build
+from googleapiclient.errors import HttpError  # ← This line is probably missing
+from google.oauth2 import service_account
 import json
 import os
 from typing import Dict, List, Optional, Any

@@ -440,6 +440,43 @@ Keep it concise and actionable."""
         except Exception as e:
             return f"Gameplan generation failed: {str(e)}"
 
+    async def synthesize_thread(self, prompt: str) -> str:
+        """
+        Use Claude to synthesize thread history into actionable summary.
+
+        This method is used by the ThreadSynthesizer to create "State of Play"
+        summaries from email thread history.
+
+        Args:
+            prompt: The synthesis prompt containing thread history and instructions
+
+        Returns:
+            Synthesized summary text
+
+        Raises:
+            ClaudeClientError: If synthesis fails
+        """
+        if not self._client:
+            raise ClaudeClientError(
+                "Claude API not configured. Set ANTHROPIC_API_KEY in config or environment."
+            )
+
+        try:
+            message = self._client.messages.create(
+                model=self.model,
+                max_tokens=2000,
+                temperature=0.7,
+                messages=[{
+                    "role": "user",
+                    "content": prompt
+                }]
+            )
+
+            return message.content[0].text.strip()
+
+        except Exception as e:
+            raise ClaudeClientError(f"Thread synthesis failed: {str(e)}")
+
 
 # ==================
 # TESTING

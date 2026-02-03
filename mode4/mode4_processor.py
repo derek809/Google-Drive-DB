@@ -19,6 +19,7 @@ import os
 import sys
 import asyncio
 import logging
+import html
 from datetime import datetime
 from typing import Dict, Any, Optional
 
@@ -44,6 +45,11 @@ from telegram_handler import TelegramHandler, TelegramHandlerError
 from llm_router import LLMRouter, route_draft_request
 from queue_processor import QueueProcessor
 from db_manager import DatabaseManager
+
+# Import new features
+from smart_parser import SmartParser, SmartParserError
+from thread_synthesizer import ThreadSynthesizer, ThreadSynthesizerError
+from proactive_engine import ProactiveEngine, ProactiveEngineError
 
 # Import Sheets client from parent
 from sheets_client import GoogleSheetsClient, SheetsClientError
@@ -86,6 +92,11 @@ class Mode4Processor:
         self._queue_processor: Optional[QueueProcessor] = None
         self._db_manager: Optional[DatabaseManager] = None
         self._llm_router: Optional[LLMRouter] = None
+
+        # New features (lazy loading)
+        self._smart_parser: Optional[SmartParser] = None
+        self._thread_synthesizer: Optional[ThreadSynthesizer] = None
+        self._proactive_engine: Optional[ProactiveEngine] = None
 
         # State tracking
         self.last_error: Optional[str] = None
@@ -136,6 +147,10 @@ class Mode4Processor:
         """Lazy-load Telegram handler."""
         if self._telegram is None:
             self._telegram = TelegramHandler()
+            # Give telegram handler reference to processor for SmartParser access
+            self._telegram.processor = self
+            # Set processor reference for conversation manager
+            self._telegram.set_conversation_processor(self)
             logger.info("Telegram handler initialized")
         return self._telegram
 
@@ -162,6 +177,52 @@ class Mode4Processor:
             self._llm_router = LLMRouter()
             logger.info("LLM router initialized")
         return self._llm_router
+
+    @property
+    def smart_parser(self) -> SmartParser:
+        """Lazy-load Smart Parser."""
+        if self._smart_parser is None:
+            from m1_config import SMART_PARSER_MODEL
+            self._smart_parser = SmartParser(model=SMART_PARSER_MODEL)
+            if self._smart_parser.available:
+                logger.info(f"Smart Parser initialized with LLM model: {SMART_PARSER_MODEL}")
+            else:
+                logger.info("Smart Parser initialized (regex-only mode)")
+        return self._smart_parser
+
+    @property
+    def thread_synthesizer(self) -> ThreadSynthesizer:
+        """Lazy-load Thread Synthesizer."""
+        if self._thread_synthesizer is None:
+            from m1_config import MODE4_DB_PATH
+            self._thread_synthesizer = ThreadSynthesizer(db_path=MODE4_DB_PATH)
+            logger.info("Thread Synthesizer initialized")
+        return self._thread_synthesizer
+
+    @property
+    def proactive_engine(self) -> ProactiveEngine:
+        """Lazy-load Proactive Engine."""
+        if self._proactive_engine is None:
+            self._proactive_engine = ProactiveEngine(
+                processor=self,
+                telegram_handler=self.telegram
+            )
+            logger.info("Proactive Engine initialized")
+        return self._proactive_engine
+
+    async def start_proactive_engine(self):
+        """Start proactive engine background worker."""
+        from m1_config import PROACTIVE_ENGINE_ENABLED
+
+        if not PROACTIVE_ENGINE_ENABLED:
+            logger.info("Proactive Engine disabled by config")
+            return
+
+        logger.info("Starting Proactive Engine background workers...")
+
+        # Start worker loop in background
+        asyncio.create_task(self.proactive_engine.worker_loop())
+        asyncio.create_task(self.proactive_engine.schedule_morning_digest())
 
     # ==================
     # MAIN PROCESSING
@@ -196,9 +257,10 @@ class Mode4Processor:
 
         try:
             # Step 1: Search for email
+            email_reference_escaped = html.escape(email_reference[:50])
             await self.telegram.send_response(
                 chat_id,
-                f"🔍 Searching for email: {email_reference[:50]}..."
+                f"🔍 Searching for email: {email_reference_escaped}..."
             )
 
             email = self.gmail.search_email(
@@ -223,10 +285,9 @@ class Mode4Processor:
             contact_info = self.pattern_matcher.get_contact_info(email.get('sender_email', ''))
 
             # Step 3: Get pattern match
-            pattern_match = self.pattern_matcher.match(
-                subject=email.get('subject', ''),
-                body=email.get('body', ''),
-                sender=email.get('sender_email', '')
+            pattern_match = self.pattern_matcher.match_pattern(
+                email_content=email.get('body', ''),
+                subject=email.get('subject', '')
             )
 
             # Step 4: Use new inline button flow OR legacy flow
@@ -466,7 +527,7 @@ class Mode4Processor:
 
         # Process any queued messages from when bot was offline
         try:
-            asyncio.get_event_loop().run_until_complete(self._process_startup_queue())
+            asyncio.run(self._process_startup_queue())
         except Exception as e:
             logger.warning(f"Queue processing warning: {e}")
 

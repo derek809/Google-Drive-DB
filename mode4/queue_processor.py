@@ -318,7 +318,7 @@ class QueueProcessor:
 
             template = pattern_match.get('template') if pattern_match else None
 
-            result = ollama.generate_email_draft(
+            result = ollama.generate_draft(
                 email_data=email_data,
                 instruction=instruction,
                 template=template

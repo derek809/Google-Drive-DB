@@ -177,6 +177,107 @@ class DatabaseManager:
                 )
             """)
 
+            # Workspace items for ProactiveEngine
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS workspace_items (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    thread_id TEXT NOT NULL UNIQUE,
+                    subject TEXT NOT NULL,
+                    from_name TEXT NOT NULL,
+                    from_email TEXT NOT NULL,
+                    received_at TEXT NOT NULL,
+                    last_gmail_activity TEXT,
+                    urgency TEXT DEFAULT 'normal',
+                    status TEXT DEFAULT 'active',
+                    days_old INTEGER DEFAULT 0,
+                    related_draft_id TEXT,
+                    last_bot_suggestion TEXT,
+                    suggestion_count INTEGER DEFAULT 0,
+                    chat_id INTEGER,
+                    added_to_workspace TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_status
+                ON workspace_items(status)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_urgency
+                ON workspace_items(urgency)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workspace_days_old
+                ON workspace_items(days_old)
+            """)
+
+            # Suggestion log for ProactiveEngine
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS suggestion_log (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    workspace_item_id INTEGER NOT NULL,
+                    suggestion_type TEXT NOT NULL,
+                    suggested_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    user_action TEXT,
+                    FOREIGN KEY (workspace_item_id) REFERENCES workspace_items(id)
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestion_workspace
+                ON suggestion_log(workspace_item_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestion_type
+                ON suggestion_log(suggestion_type)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_suggestion_date
+                ON suggestion_log(suggested_at)
+            """)
+
+            # Migration tracking table
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS db_migrations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    migration_name TEXT NOT NULL,
+                    applied_at TEXT DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            # Workflows for multi-step task chaining
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS workflows (
+                    workflow_id TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    workflow_type TEXT NOT NULL,
+                    state TEXT NOT NULL DEFAULT 'idle',
+                    context TEXT DEFAULT '{}',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    step_history TEXT DEFAULT '[]'
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workflows_user
+                ON workflows(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workflows_state
+                ON workflows(state)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_workflows_updated
+                ON workflows(updated_at)
+            """)
+
             conn.commit()
 
     # ==================
@@ -225,6 +326,26 @@ class DatabaseManager:
                 LIMIT ?
             """, (limit,))
             return [dict(row) for row in cursor.fetchall()]
+
+    def get_pending_queue_messages(self, limit: int = 20) -> List[Dict]:
+        """Alias for get_pending_messages() for backward compatibility."""
+        return self.get_pending_messages(limit)
+
+    def get_queue_messages_by_status(self, status: str, limit: int = 100) -> List[Dict]:
+        """Get queue messages by status."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT * FROM message_queue
+                WHERE status = ?
+                ORDER BY received_at ASC
+                LIMIT ?
+            """, (status, limit))
+            return [dict(row) for row in cursor.fetchall()]
+
+    def initialize(self):
+        """Initialize database (alias for _ensure_schema for backward compatibility)."""
+        self._ensure_schema()
 
     def update_queue_status(
         self,
