@@ -676,7 +676,7 @@ class WorkflowExecutor:
         try:
             # Try Ollama first (faster, free)
             if self.ollama and self.ollama.is_available():
-                result = self.ollama.generate_email_draft(
+                result = self.ollama.generate_draft(
                     email_data=email,
                     instruction=instruction
                 )

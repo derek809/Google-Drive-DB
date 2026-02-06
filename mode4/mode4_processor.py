@@ -45,6 +45,8 @@ from telegram_handler import TelegramHandler, TelegramHandlerError
 from llm_router import LLMRouter, route_draft_request
 from queue_processor import QueueProcessor
 from db_manager import DatabaseManager
+from claude_client import ClaudeClient, ClaudeClientError
+from kimi_client import KimiClient, KimiClientError
 
 # Import new features
 from smart_parser import SmartParser, SmartParserError
@@ -97,6 +99,8 @@ class Mode4Processor:
         self._smart_parser: Optional[SmartParser] = None
         self._thread_synthesizer: Optional[ThreadSynthesizer] = None
         self._proactive_engine: Optional[ProactiveEngine] = None
+        self._claude: Optional[ClaudeClient] = None
+        self._kimi: Optional[KimiClient] = None
 
         # State tracking
         self.last_error: Optional[str] = None
@@ -209,6 +213,22 @@ class Mode4Processor:
             )
             logger.info("Proactive Engine initialized")
         return self._proactive_engine
+
+    @property
+    def claude(self) -> ClaudeClient:
+        """Lazy-load Claude client."""
+        if self._claude is None:
+            self._claude = ClaudeClient()
+            logger.info("Claude client initialized")
+        return self._claude
+
+    @property
+    def kimi(self) -> KimiClient:
+        """Lazy-load Kimi K2 client."""
+        if self._kimi is None:
+            self._kimi = KimiClient()
+            logger.info("Kimi K2 client initialized")
+        return self._kimi
 
     async def start_proactive_engine(self):
         """Start proactive engine background worker."""

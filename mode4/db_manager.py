@@ -149,6 +149,13 @@ class DatabaseManager:
                 ON tasks(deadline)
             """)
 
+            # Migration: Add skill_slug reference to tasks table
+            try:
+                cursor.execute("ALTER TABLE tasks ADD COLUMN skill_slug TEXT REFERENCES skills(slug)")
+                logger.info("Added skill_slug column to tasks table")
+            except Exception:
+                pass  # Column already exists
+
             # Quick links for file_fetcher
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS quick_links (
@@ -175,6 +182,47 @@ class DatabaseManager:
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     completed_at TIMESTAMP
                 )
+            """)
+
+            # Skills - finalized ideas with Master Doc + Sheets linkage
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS skills (
+                    slug TEXT PRIMARY KEY,
+                    user_id INTEGER NOT NULL,
+                    type TEXT NOT NULL,
+                    context TEXT,
+                    status TEXT DEFAULT 'Pending',
+                    title TEXT NOT NULL,
+                    body TEXT NOT NULL,
+                    action_items TEXT,
+                    tags TEXT,
+                    doc_position TEXT,
+                    sheet_row_ids TEXT,
+                    idea_session_id TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TIMESTAMP,
+                    FOREIGN KEY (idea_session_id) REFERENCES idea_sessions(id)
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_skills_user
+                ON skills(user_id)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_skills_status
+                ON skills(status)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_skills_type
+                ON skills(type)
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_skills_created
+                ON skills(created_at)
             """)
 
             # Workspace items for ProactiveEngine
@@ -495,15 +543,16 @@ class DatabaseManager:
         title: str,
         priority: str = 'medium',
         deadline: datetime = None,
-        notes: str = None
+        notes: str = None,
+        skill_slug: str = None
     ) -> int:
         """Add a new task."""
         with self.get_connection() as conn:
             cursor = conn.cursor()
             cursor.execute("""
-                INSERT INTO tasks (title, priority, deadline, notes)
-                VALUES (?, ?, ?, ?)
-            """, (title, priority, deadline, notes))
+                INSERT INTO tasks (title, priority, deadline, notes, skill_slug)
+                VALUES (?, ?, ?, ?, ?)
+            """, (title, priority, deadline, notes, skill_slug))
             conn.commit()
             return cursor.lastrowid
 
@@ -683,6 +732,210 @@ class DatabaseManager:
                     WHERE id = ?
                 """, values)
                 conn.commit()
+
+    # ==================
+    # SKILLS
+    # ==================
+
+    def create_skill(
+        self,
+        slug: str,
+        user_id: int,
+        skill_type: str,
+        title: str,
+        body: str,
+        context: str = None,
+        action_items: List[str] = None,
+        tags: List[str] = None,
+        doc_position: str = None,
+        sheet_row_ids: List[str] = None,
+        idea_session_id: str = None
+    ) -> str:
+        """
+        Create a new skill record.
+
+        Args:
+            slug: Unique identifier (e.g., "idea_rr_onboarding_20250205_1430")
+            user_id: Telegram user ID
+            skill_type: Type (Task, Email Draft, Note, Brainstorm)
+            title: Short title
+            body: Full body content
+            context: Optional context tag
+            action_items: List of action items
+            tags: List of tags
+            doc_position: Reference position in Master Doc
+            sheet_row_ids: List of Google Sheets row IDs
+            idea_session_id: Link to original idea session
+
+        Returns:
+            The slug of the created skill
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                INSERT INTO skills
+                (slug, user_id, type, title, body, context, action_items, tags,
+                 doc_position, sheet_row_ids, idea_session_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (
+                slug, user_id, skill_type, title, body, context,
+                json.dumps(action_items) if action_items else None,
+                json.dumps(tags) if tags else None,
+                doc_position,
+                json.dumps(sheet_row_ids) if sheet_row_ids else None,
+                idea_session_id
+            ))
+            conn.commit()
+            return slug
+
+    def get_skill(self, slug: str) -> Optional[Dict]:
+        """Get a skill by slug."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM skills WHERE slug = ?", (slug,))
+            row = cursor.fetchone()
+
+            if row:
+                result = dict(row)
+                # Parse JSON fields
+                if result.get('action_items'):
+                    result['action_items'] = json.loads(result['action_items'])
+                if result.get('tags'):
+                    result['tags'] = json.loads(result['tags'])
+                if result.get('sheet_row_ids'):
+                    result['sheet_row_ids'] = json.loads(result['sheet_row_ids'])
+                return result
+            return None
+
+    def list_skills(
+        self,
+        user_id: int = None,
+        status: str = None,
+        skill_type: str = None,
+        limit: int = 20
+    ) -> List[Dict]:
+        """
+        List skills with optional filters.
+
+        Args:
+            user_id: Filter by user (optional)
+            status: Filter by status (optional)
+            skill_type: Filter by type (optional)
+            limit: Max results
+
+        Returns:
+            List of skill dicts
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            query = "SELECT * FROM skills WHERE 1=1"
+            params = []
+
+            if user_id:
+                query += " AND user_id = ?"
+                params.append(user_id)
+            if status:
+                query += " AND status = ?"
+                params.append(status)
+            if skill_type:
+                query += " AND type = ?"
+                params.append(skill_type)
+
+            query += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(query, params)
+            results = []
+            for row in cursor.fetchall():
+                result = dict(row)
+                if result.get('action_items'):
+                    result['action_items'] = json.loads(result['action_items'])
+                if result.get('tags'):
+                    result['tags'] = json.loads(result['tags'])
+                if result.get('sheet_row_ids'):
+                    result['sheet_row_ids'] = json.loads(result['sheet_row_ids'])
+                results.append(result)
+            return results
+
+    def update_skill(
+        self,
+        slug: str,
+        status: str = None,
+        sheet_row_ids: List[str] = None,
+        doc_position: str = None
+    ):
+        """Update a skill's status or references."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            updates = ["updated_at = ?"]
+            values = [datetime.now()]
+
+            if status:
+                updates.append("status = ?")
+                values.append(status)
+            if sheet_row_ids is not None:
+                updates.append("sheet_row_ids = ?")
+                values.append(json.dumps(sheet_row_ids))
+            if doc_position:
+                updates.append("doc_position = ?")
+                values.append(doc_position)
+
+            values.append(slug)
+            cursor.execute(f"""
+                UPDATE skills
+                SET {', '.join(updates)}
+                WHERE slug = ?
+            """, values)
+            conn.commit()
+
+    def search_skills(self, query: str, user_id: int = None, limit: int = 20) -> List[Dict]:
+        """
+        Search skills by keyword in title, body, or tags.
+
+        Args:
+            query: Search term
+            user_id: Optional user filter
+            limit: Max results
+
+        Returns:
+            List of matching skills
+        """
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+
+            search_term = f"%{query}%"
+            sql = """
+                SELECT * FROM skills
+                WHERE (title LIKE ? OR body LIKE ? OR tags LIKE ? OR slug LIKE ?)
+            """
+            params = [search_term, search_term, search_term, search_term]
+
+            if user_id:
+                sql += " AND user_id = ?"
+                params.append(user_id)
+
+            sql += " ORDER BY created_at DESC LIMIT ?"
+            params.append(limit)
+
+            cursor.execute(sql, params)
+            results = []
+            for row in cursor.fetchall():
+                result = dict(row)
+                if result.get('action_items'):
+                    result['action_items'] = json.loads(result['action_items'])
+                if result.get('tags'):
+                    result['tags'] = json.loads(result['tags'])
+                results.append(result)
+            return results
+
+    def delete_skill(self, slug: str):
+        """Delete a skill by slug."""
+        with self.get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute("DELETE FROM skills WHERE slug = ?", (slug,))
+            conn.commit()
 
 
 # ==================

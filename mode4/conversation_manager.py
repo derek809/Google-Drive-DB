@@ -48,10 +48,17 @@ class Intent(Enum):
     INFO_DIGEST = "digest"             # "morning brief", "email summary"
     INFO_FETCH = "fetch"               # "get the W9 template"
     INFO_UNREAD = "unread"             # "show unread emails"
+    EMAIL_INBOX = "email_inbox"        # "show me my emails" → MCP labeled
 
     # Idea/Planning
     IDEA_BOUNCE = "idea"               # "help me think through..."
     IDEA_CONTINUE = "idea_continue"    # Follow-up in active session
+
+    # Skills (finalized ideas)
+    SKILL_FINALIZE = "skill_finalize"  # "finalize", "save this idea"
+    SKILL_QUICK = "skill_quick"        # "Idea: ...", "Note: ..."
+    SKILL_LIST = "skill_list"          # "show my skills", "recent ideas"
+    SKILL_SEARCH = "skill_search"      # "find skill about..."
 
     # Fallback
     UNCLEAR = "unclear"                # Can't determine intent
@@ -126,11 +133,15 @@ class ConversationManager:
             logger.info(f"Detected workflow chain with {len(workflow_steps)} steps")
             return await self._execute_workflow_chain(workflow_steps, user_id, chat_id)
 
-        # Check if user is referencing a task (#1, task 2, etc.)
-        task_ref = self._detect_task_reference(text, context)
-        if task_ref and context and context.get('last_tasks'):
-            # User wants to execute a specific task
-            return await self._execute_task_reference(task_ref, context, chat_id, user_id)
+        # Check if user is referencing a numbered item (#1, task 2, etc.)
+        ref_num = self._detect_task_reference(text, context)
+        if ref_num and context:
+            # Check for email references first (from "show me my emails")
+            if context.get('emails'):
+                return await self._execute_email_reference(ref_num, text, context, chat_id, user_id)
+            # Then check for task references (from "show my todo")
+            elif context.get('last_tasks'):
+                return await self._execute_task_reference(ref_num, context, chat_id, user_id)
 
         # Classify intent
         intent = self.classify_intent(text, context)
@@ -215,12 +226,20 @@ class ConversationManager:
         if text_clean.startswith('thank') or text_clean.startswith('thx'):
             return Intent.CASUAL_CHAT
 
-        # Help requests (expanded)
+        # Idea bouncing - check BEFORE help requests (since "help me think" contains "help")
+        idea_patterns = ['help me think', 'bounce idea', 'feedback on', 'what do you think',
+                        'think through', 'brainstorm', 'explore this idea']
+        if any(phrase in text_lower for phrase in idea_patterns):
+            return Intent.IDEA_BOUNCE
+
+        # Help requests (expanded) - check AFTER idea bouncing
         help_patterns = ['help', 'what can you do', 'how do i', 'how to', 'what are you',
-                        'what do you do', 'can you help', 'i need help', 'help me',
+                        'what do you do', 'can you help', 'i need help',
                         'show me how', 'teach me', 'explain', 'instructions']
+        # Exclude "help me think" which is idea bouncing
         if any(pattern in text_lower for pattern in help_patterns):
-            return Intent.HELP_REQUEST
+            if not any(idea in text_lower for idea in idea_patterns):
+                return Intent.HELP_REQUEST
 
         # Status check patterns
         if text_clean in ['status', 'whats happening', "what's happening", 'anything new',
@@ -236,6 +255,14 @@ class ConversationManager:
 
         if any(phrase in text_lower for phrase in ['show todo', 'list todo', 'my todo', 'my task', 'show task', 'list task', 'show agenda', 'my agenda']):
             return Intent.TODO_LIST
+
+        # MCP Email Inbox - "show me my emails", "my emails", "email inbox", "mcp inbox"
+        if any(phrase in text_lower for phrase in [
+            'show me my emails', 'my emails', 'show emails', 'email inbox',
+            'check my emails', 'check emails', 'mcp inbox', 'mcp emails',
+            'show me my mcp', 'my mcp inbox', 'mcp inbox emails'
+        ]):
+            return Intent.EMAIL_INBOX
 
         # Email-related keywords
         if 'draft' in text_lower or 'write' in text_lower or 'compose' in text_lower:
@@ -257,9 +284,40 @@ class ConversationManager:
         if 'unread' in text_lower:
             return Intent.INFO_UNREAD
 
-        # Idea bouncing
-        if any(phrase in text_lower for phrase in ['help me think', 'bounce idea', 'feedback on', 'what do you think']):
+        # Idea bouncing (already checked above, but keep for LLM fallback path)
+        # This is redundant now but kept for safety
+        if any(phrase in text_lower for phrase in ['help me think', 'bounce idea', 'feedback on', 'what do you think', 'think through']):
             return Intent.IDEA_BOUNCE
+
+        # === SKILL MANAGEMENT ===
+
+        # Skill finalization - "finalize", "save this idea", "done with idea"
+        finalize_phrases = ['finalize', 'save skill', 'save this idea', 'done with idea',
+                           'thats the idea', "that's the idea", 'wrap up', 'lock it in',
+                           'save to doc', 'finalize idea']
+        if any(phrase in text_lower for phrase in finalize_phrases):
+            return Intent.SKILL_FINALIZE
+
+        # Quick skill capture - "Idea: ...", "Note: ...", "Task: ..."
+        if text_lower.startswith(('idea:', 'note:', 'task:', 'brainstorm:')):
+            return Intent.SKILL_QUICK
+
+        # Skill listing - "show my skills", "recent ideas", "list skills"
+        skill_list_phrases = ['show skills', 'my skills', 'recent ideas', 'list skills',
+                              'show ideas', 'my ideas', 'recent skills']
+        if any(phrase in text_lower for phrase in skill_list_phrases):
+            return Intent.SKILL_LIST
+
+        # Skill search - "find skill about...", "search ideas"
+        if ('find skill' in text_lower or 'search skill' in text_lower or
+            'find idea' in text_lower or 'search idea' in text_lower):
+            return Intent.SKILL_SEARCH
+
+        # Process inbox command
+        if 'process inbox' in text_lower:
+            return Intent.SKILL_FINALIZE  # Reuse for inbox processing
+
+        # === END SKILL MANAGEMENT ===
 
         # Casual chat
         casual_patterns = ["how are you", "what's up", "whats up", "wassup", "how's it going"]
@@ -403,6 +461,26 @@ Return ONLY the intent word (nothing else):"""
         elif intent == Intent.INFO_UNREAD:
             return await self._handle_unread(chat_id)
 
+        elif intent == Intent.EMAIL_INBOX:
+            return await self._handle_mcp_inbox(chat_id, user_id)
+
+        # Idea bouncing
+        elif intent == Intent.IDEA_BOUNCE:
+            return await self._handle_idea_bounce(text, user_id, chat_id)
+
+        # Skill management
+        elif intent == Intent.SKILL_FINALIZE:
+            return await self._handle_skill_finalize(text, user_id, chat_id)
+
+        elif intent == Intent.SKILL_QUICK:
+            return await self._handle_skill_quick(text, user_id, chat_id)
+
+        elif intent == Intent.SKILL_LIST:
+            return await self._handle_skill_list(user_id, chat_id)
+
+        elif intent == Intent.SKILL_SEARCH:
+            return await self._handle_skill_search(text, user_id, chat_id)
+
         # Commands
         elif intent == Intent.COMMAND:
             return {
@@ -529,8 +607,8 @@ Just ask naturally and I'll figure out what you need!"""
             else:
                 # Single task - use QuickCapture for better parsing
                 from quick_capture import QuickCapture
-                qc = QuickCapture(telegram_handler=self.telegram)
-                task_info = qc.parse_task_nlp(text)
+                qc = QuickCapture()
+                task_info = qc.parse(text)
 
                 # Extract just the task part from the message
                 task_title = task_info.get('task', text)
@@ -600,40 +678,153 @@ Just ask naturally and I'll figure out what you need!"""
         return cleaned_tasks
 
     async def _handle_todo_list(self, chat_id: int, user_id: int) -> Dict[str, Any]:
-        """Handle showing todo list with task references."""
+        """Handle showing todo list from Google Sheets Todo List tab + SQLite tasks."""
         try:
-            from todo_manager import TodoManager
+            import sys
+            import html
+            sys.path.insert(0, '/Users/work/Telgram bot')
+            from sheets_client import GoogleSheetsClient
+            from m1_config import SPREADSHEET_ID, SHEETS_CREDENTIALS_PATH
+            from db_manager import DatabaseManager
 
-            todo_mgr = TodoManager()
-            tasks = todo_mgr.list_tasks(status='pending')
+            all_pending = []
+            task_references = []
+            idx = 0
 
-            if not tasks:
-                response = "Your todo list is empty! 🎉"
-            else:
-                response = "<b>📋 Your Tasks</b>\n\n"
-                task_references = []
+            # Source 1: Google Sheets "Todo List" tab
+            # Columns: Source | Subject/Task | Context | Status | Created | Due Date
+            sheets = None
+            try:
+                sheets = GoogleSheetsClient(SHEETS_CREDENTIALS_PATH)
+                sheets.connect()
 
-                for idx, task in enumerate(tasks, 1):
-                    priority_emoji = {'high': '🔴', 'medium': '🟡', 'low': '🟢'}.get(task['priority'], '⚪')
-                    response += f"{idx}. {priority_emoji} <b>{task['title']}</b>\n"
-                    if task.get('deadline'):
-                        response += f"   📅 {task['deadline']}\n"
-                    response += "\n"
+                result = sheets.read_range(SPREADSHEET_ID, 'Todo List!A:F')
 
-                    # Store task reference
-                    task_references.append({
+                if result.get('success') and result.get('values'):
+                    rows = result['values']
+                    sheet_tasks = rows[1:] if len(rows) > 1 else []
+
+                    for row in sheet_tasks:
+                        status = row[3].strip().lower() if len(row) > 3 else ''
+                        subject = row[1].strip() if len(row) > 1 else ''
+                        if status in ('pending', '') and subject:
+                            idx += 1
+                            source = row[0] if len(row) > 0 else ''
+                            context = row[2] if len(row) > 2 else ''
+                            due_date = row[5] if len(row) > 5 else ''
+
+                            all_pending.append({
+                                'number': idx,
+                                'title': subject,
+                                'source': source,
+                                'context': context,
+                                'due_date': due_date,
+                                'origin': 'sheets',
+                                'row_index': sheet_tasks.index(row) + 2,
+                            })
+            except Exception as e:
+                logger.warning(f"Could not read Todo List sheet: {e}")
+            finally:
+                if sheets:
+                    sheets.close()
+
+            # Source 2: Also check MCP sheet for pending tasks
+            sheets2 = None
+            try:
+                sheets2 = GoogleSheetsClient(SHEETS_CREDENTIALS_PATH)
+                sheets2.connect()
+
+                result = sheets2.read_range(SPREADSHEET_ID, 'MCP!A:H')
+
+                if result.get('success') and result.get('values'):
+                    rows = result['values']
+                    mcp_tasks = rows[1:] if len(rows) > 1 else []
+
+                    for row in mcp_tasks:
+                        status = row[5].strip().lower() if len(row) > 5 else ''
+                        if status == 'pending':
+                            idx += 1
+                            source = row[0] if len(row) > 0 else ''
+                            subject = row[1] if len(row) > 1 else 'No subject'
+                            prompt = row[2] if len(row) > 2 else ''
+                            email_id = row[6] if len(row) > 6 else ''
+
+                            all_pending.append({
+                                'number': idx,
+                                'title': subject,
+                                'source': source,
+                                'prompt': prompt,
+                                'email_id': email_id,
+                                'origin': 'mcp',
+                                'row_index': mcp_tasks.index(row) + 2,
+                            })
+            except Exception as e:
+                logger.warning(f"Could not read MCP sheet: {e}")
+            finally:
+                if sheets2:
+                    sheets2.close()
+
+            # Source 3: SQLite tasks (local)
+            try:
+                db = DatabaseManager()
+                sqlite_tasks = db.get_pending_tasks(limit=10)
+                for task in sqlite_tasks:
+                    idx += 1
+                    all_pending.append({
                         'number': idx,
+                        'title': task['title'],
+                        'source': 'local',
+                        'priority': task.get('priority', 'medium'),
+                        'notes': task.get('notes', ''),
+                        'origin': 'sqlite',
                         'task_id': task['id'],
-                        'title': task['title']
                     })
+            except Exception as e:
+                logger.warning(f"Could not read SQLite tasks: {e}")
 
-                response += "\n💡 <i>Say '#1' or 'do task 2' to execute a task!</i>"
+            # Build response
+            if not all_pending:
+                await self.telegram.send_response(chat_id, "No pending tasks found.")
+                return {'handled': True, 'routed_to': 'todo_list'}
 
-                # Store task references in context
-                self.store_reference(user_id, 'tasks', task_references)
+            response = "<b>Your Todo List</b>\n\n"
+
+            for item in all_pending[:15]:
+                title = html.escape(item['title'][:45])
+                origin_tag = ''
+                if item['origin'] == 'mcp':
+                    origin_tag = ' [MCP]'
+                elif item['origin'] == 'sqlite':
+                    origin_tag = ' [Local]'
+
+                response += f"<b>{item['number']}.</b> {title}{origin_tag}\n"
+
+                # Add context info
+                if item.get('prompt'):
+                    response += f"    {html.escape(item['prompt'][:55])}...\n"
+                elif item.get('context'):
+                    response += f"    Context: {html.escape(item['context'][:40])}\n"
+                elif item.get('notes'):
+                    response += f"    {html.escape(item['notes'][:55])}\n"
+
+                if item.get('due_date'):
+                    response += f"    Due: {item['due_date']}\n"
+
+                # Suggestion
+                suggestion = self._generate_task_suggestion({
+                    'title': item.get('prompt') or item['title'],
+                    'priority': item.get('priority', 'medium')
+                })
+                response += f"    <i>{suggestion}</i>\n\n"
+
+            response += f"\n<i>Showing {min(len(all_pending), 15)} of {len(all_pending)} pending tasks</i>"
+            response += "\n<i>Say '#1 do it', '#2 skip', or 'act on #3'</i>"
+
+            # Store references for #N syntax
+            self.store_reference(user_id, 'tasks', all_pending)
 
             await self.telegram.send_response(chat_id, response)
-            return {'handled': True, 'routed_to': 'todo_manager', 'task_count': len(tasks)}
+            return {'handled': True, 'routed_to': 'todo_list', 'task_count': len(all_pending)}
 
         except Exception as e:
             logger.error(f"Error listing todos: {e}", exc_info=True)
@@ -641,7 +832,7 @@ Just ask naturally and I'll figure out what you need!"""
                 chat_id,
                 f"Sorry, I couldn't fetch your todos. Error: {str(e)}"
             )
-            return {'handled': True, 'routed_to': 'todo_manager', 'error': str(e)}
+            return {'handled': True, 'routed_to': 'todo_list', 'error': str(e)}
 
     def _detect_priority(self, text: str, default_priority: str = 'medium') -> str:
         """Auto-detect priority from text."""
@@ -658,6 +849,33 @@ Just ask naturally and I'll figure out what you need!"""
             return 'low'
 
         return default_priority
+
+    def _generate_task_suggestion(self, task: Dict) -> str:
+        """Generate proactive suggestion for a task."""
+        title = task['title'].lower()
+        priority = task.get('priority', 'medium')
+
+        # High priority = urgent action
+        if priority == 'high':
+            return "Urgent - want me to help now?"
+
+        # Detect task type from title
+        if any(word in title for word in ['email', 'draft', 'write', 'reply', 'respond']):
+            return "I can draft this email for you"
+        elif any(word in title for word in ['call', 'phone', 'ring']):
+            return "Set a reminder to call?"
+        elif any(word in title for word in ['review', 'check', 'look at', 'read']):
+            return "Pull up the document?"
+        elif any(word in title for word in ['schedule', 'meeting', 'book']):
+            return "Check calendar and schedule?"
+        elif any(word in title for word in ['send', 'forward']):
+            return "Ready to send when you are"
+        elif any(word in title for word in ['buy', 'order', 'purchase']):
+            return "Add to shopping list?"
+        elif any(word in title for word in ['fix', 'repair', 'debug']):
+            return "Need context on this?"
+        else:
+            return "Ready when you are"
 
     def _detect_task_reference(self, text: str, context: Optional[Dict] = None) -> Optional[int]:
         """Detect if user is referencing a task by number (#1, task 2, etc.)."""
@@ -695,9 +913,32 @@ Just ask naturally and I'll figure out what you need!"""
         if not task_ref:
             await self.telegram.send_response(
                 chat_id,
-                f"Task #{task_num} not found. Try 'show my agenda' to see all tasks."
+                f"Task #{task_num} not found. Try 'show my todo' to see all tasks."
             )
             return {'handled': True, 'routed_to': 'task_reference', 'error': 'not_found'}
+
+        # Check if this is an MCP sheet task with email_id (from Google Sheets)
+        if task_ref.get('email_id'):
+            # This is an MCP sheet task - use the prompt as instruction
+            prompt = task_ref.get('prompt', 'respond')
+            subject = task_ref.get('title', '')
+            email_id = task_ref['email_id']
+
+            await self.telegram.send_response(
+                chat_id,
+                f"Executing MCP task: {subject[:40]}\nInstruction: {prompt[:60]}...\n\nSearching for email..."
+            )
+
+            return {
+                'handled': False,
+                'routed_to': 'email_processor',
+                'reason': 'mcp_task_execution',
+                'parsed_message': {
+                    'email_id': email_id,
+                    'instruction': prompt,
+                    'valid': True
+                }
+            }
 
         # Extract the action from the task title
         task_title = task_ref['title'].lower()
@@ -732,22 +973,107 @@ Just ask naturally and I'll figure out what you need!"""
 
         else:
             # Generic task - just acknowledge
-            response = f"✓ Working on task #{task_num}: {task_ref['title']}"
+            response = f"Working on task #{task_num}: {task_ref['title']}"
             await self.telegram.send_response(chat_id, response)
             return {'handled': True, 'routed_to': 'task_reference'}
+
+    async def _execute_email_reference(self, ref_num: int, text: str, context: Dict, chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Execute action on a referenced email (#1 reply, #2 archive, etc.)."""
+        emails = context.get('emails', [])
+
+        # Find the email
+        email_ref = next((e for e in emails if e['number'] == ref_num), None)
+
+        if not email_ref:
+            await self.telegram.send_response(
+                chat_id,
+                f"Email #{ref_num} not found. Try 'show me my emails' to refresh the list."
+            )
+            return {'handled': True, 'routed_to': 'email_reference', 'error': 'not_found'}
+
+        text_lower = text.lower()
+        subject = email_ref.get('subject', 'Unknown')
+        email_id = email_ref.get('email_id')
+
+        # Determine action from text
+        if any(word in text_lower for word in ['reply', 'respond', 'answer', 'draft']):
+            # Route to email draft flow
+            await self.telegram.send_response(
+                chat_id,
+                f"Drafting reply to: {subject}\n\nSearching for the email..."
+            )
+            return {
+                'handled': False,
+                'routed_to': 'email_processor',
+                'reason': 'email_reference_reply',
+                'email_id': email_id,
+                'action': 'reply'
+            }
+
+        elif any(word in text_lower for word in ['archive', 'done', 'complete']):
+            # Note: Archive not fully implemented yet - just acknowledge
+            await self.telegram.send_response(chat_id, f"Marked as done: {subject}\n<i>(Full archive coming soon)</i>")
+            return {'handled': True, 'routed_to': 'email_reference'}
+
+        elif any(word in text_lower for word in ['forward', 'send to']):
+            await self.telegram.send_response(
+                chat_id,
+                f"Who should I forward '{subject}' to?"
+            )
+            # Store pending action
+            if user_id not in self._context_store:
+                self._context_store[user_id] = {}
+            self._context_store[user_id]['pending_forward'] = email_ref
+            return {'handled': True, 'routed_to': 'email_reference', 'awaiting': 'forward_recipient'}
+
+        elif any(word in text_lower for word in ['skip', 'later', 'not now', 'ignore']):
+            await self.telegram.send_response(chat_id, f"Skipped: {subject}")
+            return {'handled': True, 'routed_to': 'email_reference'}
+
+        elif any(word in text_lower for word in ['do it', 'act', 'handle', 'yes']):
+            # Infer action from email content
+            suggestion = self._suggest_email_action({'subject': subject})
+            if 'reply' in suggestion.lower() or 'response' in suggestion.lower():
+                await self.telegram.send_response(
+                    chat_id,
+                    f"Drafting reply to: {subject}\n\nSearching for the email..."
+                )
+                return {
+                    'handled': False,
+                    'routed_to': 'email_processor',
+                    'reason': 'email_reference_act',
+                    'email_id': email_id,
+                    'action': 'reply'
+                }
+            else:
+                await self.telegram.send_response(
+                    chat_id,
+                    f"What would you like to do with '{subject}'?\nOptions: reply, archive, forward"
+                )
+                return {'handled': True, 'routed_to': 'email_reference'}
+
+        else:
+            # Show options
+            await self.telegram.send_response(
+                chat_id,
+                f"<b>{subject}</b>\nFrom: {email_ref.get('sender', 'Unknown')}\n\n<i>What would you like to do? reply, archive, forward, or skip</i>"
+            )
+            return {'handled': True, 'routed_to': 'email_reference'}
 
     async def _handle_digest(self, chat_id: int) -> Dict[str, Any]:
         """Handle morning digest/email summary request."""
         try:
             from daily_digest import DailyDigest
 
-            digest = DailyDigest(
-                gmail_client=self.processor.gmail if self.processor else None,
-                ollama_client=self.processor.ollama if self.processor else None
-            )
+            digest = DailyDigest()
 
-            summary = digest.generate_digest(hours=24)
-            await self.telegram.send_response(chat_id, summary)
+            summary = digest.get_morning_summary(hours_back=24)
+            # Format the summary dict as a readable message
+            if isinstance(summary, dict):
+                response_text = summary.get('formatted', str(summary))
+            else:
+                response_text = str(summary)
+            await self.telegram.send_response(chat_id, response_text)
             return {'handled': True, 'routed_to': 'daily_digest'}
 
         except Exception as e:
@@ -772,11 +1098,21 @@ Just ask naturally and I'll figure out what you need!"""
         try:
             from daily_digest import DailyDigest
 
-            digest = DailyDigest(
-                gmail_client=self.processor.gmail if self.processor else None
-            )
+            digest = DailyDigest()
 
-            unread_summary = digest.get_unread_summary()
+            unread_counts = digest.get_unread_counts()
+            # Format the counts dict as a readable message
+            if unread_counts:
+                lines = ["<b>Unread Email Counts</b>\n"]
+                total = 0
+                for category, count in unread_counts.items():
+                    if count > 0:
+                        lines.append(f"• {category}: {count}")
+                        total += count
+                lines.append(f"\n<b>Total:</b> {total}")
+                unread_summary = "\n".join(lines)
+            else:
+                unread_summary = "No unread emails!"
             await self.telegram.send_response(chat_id, unread_summary)
             return {'handled': True, 'routed_to': 'daily_digest'}
 
@@ -787,6 +1123,304 @@ Just ask naturally and I'll figure out what you need!"""
                 f"Sorry, I couldn't get your unread counts. Error: {str(e)}"
             )
             return {'handled': True, 'routed_to': 'daily_digest', 'error': str(e)}
+
+    async def _handle_mcp_inbox(self, chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Show emails with MCP label + proactive suggestions."""
+        try:
+            import html
+            from gmail_client import GmailClient
+
+            gmail = GmailClient()
+
+            # Search for MCP-labeled emails (extend search window - MCP items can be older)
+            emails = gmail.search_emails(
+                reference='label:MCP',
+                search_type='keyword',
+                max_results=10,
+                days_back=90
+            )
+
+            if not emails:
+                await self.telegram.send_response(chat_id, "No emails in your MCP inbox!")
+                return {'handled': True, 'routed_to': 'mcp_inbox'}
+
+            response = "<b>Your MCP Inbox</b>\n\n"
+            email_references = []
+
+            for idx, email in enumerate(emails, 1):
+                sender = email.get('sender_name', email.get('sender_email', 'Unknown'))
+                subject = email.get('subject', 'No subject')[:40]
+
+                # Escape HTML to prevent parsing errors with email addresses
+                response += f"<b>{idx}.</b> {html.escape(subject)}\n"
+                response += f"    From: {html.escape(sender)}\n"
+
+                # Proactive suggestion based on content
+                suggestion = self._suggest_email_action(email)
+                response += f"    <i>{suggestion}</i>\n\n"
+
+                email_references.append({
+                    'number': idx,
+                    'email_id': email.get('id'),
+                    'subject': subject,
+                    'sender': sender
+                })
+
+            response += "\n<i>Say '#1 reply' or '#2 archive' or 'draft response to #3'</i>"
+
+            # Store references for #1 syntax
+            self._store_email_references(user_id, email_references)
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'mcp_inbox', 'email_count': len(emails)}
+
+        except Exception as e:
+            logger.error(f"Error in MCP inbox: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error fetching emails: {str(e)}")
+            return {'handled': True, 'routed_to': 'mcp_inbox', 'error': str(e)}
+
+    def _suggest_email_action(self, email: Dict) -> str:
+        """Generate proactive suggestion for an email."""
+        subject = email.get('subject', '').lower()
+        snippet = email.get('snippet', '').lower()
+
+        if 'invoice' in subject or 'payment' in subject or 'invoice' in snippet:
+            return "Payment item - review or forward to accounting?"
+        elif 'urgent' in subject or 'asap' in subject or 'urgent' in snippet:
+            return "Urgent - draft a quick reply?"
+        elif 'meeting' in subject or 'calendar' in subject or 'schedule' in subject:
+            return "Meeting related - check your calendar?"
+        elif 'contract' in subject or 'agreement' in subject or 'sign' in subject:
+            return "Contract item - review or add to todo?"
+        elif 'question' in subject or '?' in subject:
+            return "Question - draft a response?"
+        elif 'follow up' in subject or 'following up' in subject:
+            return "Follow-up - might need a reply"
+        else:
+            return "Read, reply, or archive?"
+
+    def _store_email_references(self, user_id: int, references: list):
+        """Store email references for #1 syntax."""
+        if user_id not in self._context_store:
+            self._context_store[user_id] = {}
+        self._context_store[user_id]['emails'] = references
+        self._context_store[user_id]['emails_timestamp'] = time.time()
+
+    async def _handle_idea_bounce(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Handle idea bouncing / thinking through requests."""
+        try:
+            from idea_bouncer import IdeaBouncer
+
+            bouncer = IdeaBouncer()
+
+            # Extract the topic from the message
+            # Remove common prefixes like "help me think through", "think through", etc.
+            topic = text.lower()
+            prefixes_to_remove = [
+                'help me think through', 'help me think about', 'think through',
+                'bounce idea', 'brainstorm', 'explore this idea', 'what do you think about',
+                'feedback on', 'help me with'
+            ]
+            for prefix in prefixes_to_remove:
+                if topic.startswith(prefix):
+                    topic = text[len(prefix):].strip()
+                    break
+
+            # Clean up the topic
+            topic = topic.strip().strip(':').strip()
+
+            if not topic:
+                await self.telegram.send_response(
+                    chat_id,
+                    "What would you like to think through? Tell me the topic or idea you want to explore."
+                )
+                return {'handled': True, 'routed_to': 'idea_bouncer', 'awaiting_topic': True}
+
+            # Start idea exploration session
+            response = bouncer.start_session(topic, user_id)
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'idea_bouncer', 'topic': topic}
+
+        except Exception as e:
+            logger.error(f"Error in idea bouncer: {e}", exc_info=True)
+            await self.telegram.send_response(
+                chat_id,
+                f"Sorry, I had trouble starting the idea exploration. Error: {str(e)}"
+            )
+            return {'handled': True, 'routed_to': 'idea_bouncer', 'error': str(e)}
+
+    # ==================
+    # SKILL MANAGEMENT
+    # ==================
+
+    async def _handle_skill_finalize(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Handle skill finalization - save idea to Master Doc + create tasks."""
+        try:
+            from skill_manager import SkillManager
+
+            skill_mgr = SkillManager()
+
+            # Check if this is inbox processing
+            if 'process inbox' in text.lower():
+                results = await skill_mgr.process_inbox()
+                processed_count = sum(1 for r in results if r.get('success'))
+
+                if processed_count > 0:
+                    response = f"Processed {processed_count} inbox entries.\n"
+                    for r in results:
+                        if r.get('success'):
+                            response += f"  • #{r.get('slug')}: {r.get('title', 'Untitled')[:30]}\n"
+                else:
+                    response = "Inbox is empty or no entries to process."
+
+                await self.telegram.send_response(chat_id, response)
+                return {'handled': True, 'routed_to': 'skill_manager', 'processed': processed_count}
+
+            # Normal finalization of active idea session
+            result = await skill_mgr.finalize_skill(user_id, chat_id)
+
+            if result.get('success'):
+                response = (
+                    f"Skill saved!\n"
+                    f"<b>Slug:</b> #{result['slug']}\n"
+                    f"<b>Type:</b> {result.get('type', 'Note')}\n"
+                )
+                if result.get('action_items_count', 0) > 0:
+                    response += f"<b>Action items:</b> {result['action_items_count']}\n"
+                if result.get('tasks_created', 0) > 0:
+                    response += f"<b>Tasks created:</b> {result['tasks_created']}\n"
+                if result.get('doc_updated'):
+                    response += "\nAdded to Master Doc."
+                if result.get('sheets_updated'):
+                    response += "\nSynced to Sheets."
+            else:
+                response = result.get('error', 'Failed to finalize skill.')
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'skill_manager', 'result': result}
+
+        except Exception as e:
+            logger.error(f"Error finalizing skill: {e}", exc_info=True)
+            await self.telegram.send_response(
+                chat_id,
+                f"Sorry, I had trouble finalizing that skill. Error: {str(e)}"
+            )
+            return {'handled': True, 'routed_to': 'skill_manager', 'error': str(e)}
+
+    async def _handle_skill_quick(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Handle quick skill capture - "Idea: ...", "Note: ...", etc."""
+        try:
+            from skill_manager import SkillManager
+
+            skill_mgr = SkillManager()
+            result = await skill_mgr.capture_quick(user_id, text)
+
+            if result.get('success'):
+                response = (
+                    f"Captured!\n"
+                    f"<b>#{result['slug']}</b>\n"
+                    f"Type: {result.get('type', 'Note')}"
+                )
+                if result.get('action_items_count', 0) > 0:
+                    response += f" | {result['action_items_count']} action items"
+                if result.get('tasks_created', 0) > 0:
+                    response += f"\n{result['tasks_created']} tasks created"
+            else:
+                response = f"Could not capture: {result.get('error', 'Unknown error')}"
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'skill_manager', 'result': result}
+
+        except Exception as e:
+            logger.error(f"Error in quick capture: {e}", exc_info=True)
+            await self.telegram.send_response(
+                chat_id,
+                f"Sorry, couldn't capture that. Error: {str(e)}"
+            )
+            return {'handled': True, 'routed_to': 'skill_manager', 'error': str(e)}
+
+    async def _handle_skill_list(self, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Handle listing recent skills."""
+        try:
+            from skill_manager import SkillManager
+
+            skill_mgr = SkillManager()
+            skills = skill_mgr.list_skills(user_id=user_id, limit=10)
+
+            if not skills:
+                response = "No skills found. Capture one with 'Idea: ...' or finalize an idea session."
+            else:
+                response = "<b>Recent Skills:</b>\n\n"
+                for skill in skills:
+                    status_icon = "" if skill['status'] == 'Pending' else ""
+                    action_count = len(skill.get('action_items', [])) if skill.get('action_items') else 0
+                    response += (
+                        f"{status_icon} <b>#{skill['slug'][:30]}</b>\n"
+                        f"   {skill['type']} | {skill['title'][:40]}"
+                    )
+                    if action_count > 0:
+                        response += f" | {action_count} actions"
+                    response += "\n"
+
+                response += "\nView details: /skill <slug>"
+
+            await self.telegram.send_response(chat_id, response)
+
+            # Store skills in context for reference
+            self.update_context(user_id, {'last_skills': skills})
+
+            return {'handled': True, 'routed_to': 'skill_manager', 'count': len(skills)}
+
+        except Exception as e:
+            logger.error(f"Error listing skills: {e}", exc_info=True)
+            await self.telegram.send_response(
+                chat_id,
+                f"Sorry, couldn't list skills. Error: {str(e)}"
+            )
+            return {'handled': True, 'routed_to': 'skill_manager', 'error': str(e)}
+
+    async def _handle_skill_search(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Handle skill search by keyword."""
+        try:
+            from skill_manager import SkillManager
+            import re
+
+            # Extract search query
+            query = text.lower()
+            for prefix in ['find skill about', 'search skill', 'find idea about', 'search idea']:
+                query = re.sub(f'^{prefix}\\s*', '', query).strip()
+
+            if not query:
+                await self.telegram.send_response(
+                    chat_id,
+                    "What would you like to search for? Try: 'find skill about onboarding'"
+                )
+                return {'handled': True, 'routed_to': 'skill_manager', 'awaiting_query': True}
+
+            skill_mgr = SkillManager()
+            skills = skill_mgr.search_skills(query, user_id=user_id, limit=10)
+
+            if not skills:
+                response = f"No skills found matching '{query}'."
+            else:
+                response = f"<b>Skills matching '{query}':</b>\n\n"
+                for skill in skills:
+                    response += (
+                        f"• <b>#{skill['slug'][:30]}</b>\n"
+                        f"  {skill['title'][:50]}\n"
+                    )
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'skill_manager', 'query': query, 'count': len(skills)}
+
+        except Exception as e:
+            logger.error(f"Error searching skills: {e}", exc_info=True)
+            await self.telegram.send_response(
+                chat_id,
+                f"Sorry, search failed. Error: {str(e)}"
+            )
+            return {'handled': True, 'routed_to': 'skill_manager', 'error': str(e)}
 
     # ==================
     # CONTEXT MANAGEMENT
@@ -1090,37 +1724,43 @@ Just ask naturally and I'll figure out what you need!"""
             if context.get('last_email'):
                 await self.telegram.send_response(
                     chat_id,
-                    "🤖 Using Gemini to extract data from email..."
+                    "Extracting data from email for sheet..."
                 )
 
-                # Initialize Gemini
-                from gemini_helper import GeminiHelper
-                from config import GEMINI_API_KEY
+                # Try to use Gemini for data extraction if available
+                try:
+                    import google.generativeai as genai
+                    from m1_config import GEMINI_API_KEY
 
-                gemini = GeminiHelper(GEMINI_API_KEY)
+                    if GEMINI_API_KEY:
+                        genai.configure(api_key=GEMINI_API_KEY)
+                        model = genai.GenerativeModel('gemini-2.0-flash')
 
-                # Ask Gemini to extract data
-                task_description = f"Extract data for a spreadsheet with columns: {', '.join(columns)}"
-                email_context = {
-                    'subject': context['last_email'].get('subject', ''),
-                    'sender_email': context['last_email'].get('sender', ''),
-                    'body': context['last_email'].get('body', '')
-                }
+                        task_description = f"Extract data for a spreadsheet with columns: {', '.join(columns)}"
+                        email_body = context['last_email'].get('body', '')[:2000]
+                        email_subject = context['last_email'].get('subject', '')
 
-                gemini_result = gemini.call_gemini_for_data(task_description, email_context)
-
-                if gemini_result.get('data_found'):
-                    # Extract rows from Gemini response
-                    extracted = gemini_result.get('extracted_data', {})
-                    if isinstance(extracted, dict) and 'rows' in extracted:
-                        sheet_data.extend(extracted['rows'])
-                    elif isinstance(extracted, list):
-                        sheet_data.extend(extracted)
-
-                    logger.info(f"Gemini extracted {len(sheet_data) - 1} rows")
-                else:
-                    # Use mock data
-                    logger.info("Gemini couldn't extract data, using empty sheet")
+                        prompt = (
+                            f"{task_description}\n\n"
+                            f"From this email:\n"
+                            f"Subject: {email_subject}\n"
+                            f"Body: {email_body}\n\n"
+                            f"Return ONLY a JSON array of arrays (rows), no other text."
+                        )
+                        response = model.generate_content(prompt)
+                        import json as _json
+                        json_match = re.search(r'\[.*\]', response.text, re.DOTALL)
+                        if json_match:
+                            extracted = _json.loads(json_match.group())
+                            if isinstance(extracted, list):
+                                sheet_data.extend(extracted)
+                            logger.info(f"Gemini extracted {len(sheet_data) - 1} rows")
+                    else:
+                        logger.info("No Gemini API key, using empty sheet")
+                except ImportError:
+                    logger.info("google-generativeai not installed, using empty sheet")
+                except Exception as e:
+                    logger.warning(f"Gemini extraction failed: {e}, using empty sheet")
 
             # Create the sheet using Google Sheets API
             from sheets_client import GoogleSheetsClient
@@ -1203,11 +1843,8 @@ Just ask naturally and I'll figure out what you need!"""
         self, step: str, user_id: int, chat_id: int
     ) -> Dict[str, Any]:
         """Handle todo add in workflow context."""
-        # Extract task info and add to todo list
-        task_info = self._extract_task_info(step)
-
-        # Use existing todo handler
-        return await self._handle_todo_add(step, user_id, chat_id)
+        # Use existing todo handler (takes text, chat_id)
+        return await self._handle_todo_add(step, chat_id)
 
     async def _workflow_handle_email_search(
         self, step: str, user_id: int, chat_id: int, context: Dict[str, Any]
@@ -1276,6 +1913,104 @@ Just ask naturally and I'll figure out what you need!"""
     # ==================
     # UTILITY METHODS
     # ==================
+
+    def _parse_email_request(self, text: str) -> Dict[str, Any]:
+        """
+        Parse an email-related request into structured format.
+        Used by workflow handlers to extract email reference and instruction.
+
+        Args:
+            text: User message text (e.g., "draft email to Jason about invoice")
+
+        Returns:
+            Dict with email_reference, instruction, search_type, valid
+        """
+        import re
+        text_lower = text.lower().strip()
+
+        result = {
+            'email_reference': '',
+            'instruction': '',
+            'search_type': 'keyword',
+            'raw_text': text,
+            'valid': False
+        }
+
+        # Pattern: "draft email to [person] about [topic]"
+        match = re.match(r'(?:draft|write|compose)\s+(?:an?\s+)?(?:email|reply|response)\s+to\s+(\w+)\s+(?:about|regarding|re:?)\s+(.+)', text_lower)
+        if match:
+            result['email_reference'] = match.group(1).strip()
+            result['instruction'] = match.group(2).strip()
+            result['search_type'] = 'sender'
+            result['valid'] = True
+            return result
+
+        # Pattern: "email [person] - [instruction]"
+        match = re.match(r'(?:email|reply to|respond to)\s+(\w+)\s*[-–—]\s*(.+)', text_lower)
+        if match:
+            result['email_reference'] = match.group(1).strip()
+            result['instruction'] = match.group(2).strip()
+            result['search_type'] = 'sender'
+            result['valid'] = True
+            return result
+
+        # Fallback: treat whole text as keyword search
+        result['email_reference'] = text
+        result['instruction'] = 'respond appropriately'
+        result['valid'] = bool(text.strip())
+        return result
+
+    def _extract_task_info(self, text: str) -> Dict[str, Any]:
+        """
+        Extract task information from a text string.
+        Used by workflow handlers for todo creation steps.
+
+        Args:
+            text: User message text
+
+        Returns:
+            Dict with task, priority, deadline
+        """
+        import re
+
+        # Remove common prefixes
+        task_text = text
+        for prefix in ['add', 'create', 'todo', 'task', 'remind me to', 'add to my todo',
+                        'add to my agenda', 'add a task']:
+            if task_text.lower().startswith(prefix):
+                task_text = task_text[len(prefix):].strip()
+
+        # Clean up leading punctuation
+        task_text = task_text.lstrip(':- ').strip()
+
+        # Detect priority
+        priority = 'medium'
+        if any(word in text.lower() for word in ['urgent', 'asap', 'critical', 'important']):
+            priority = 'high'
+        elif any(word in text.lower() for word in ['whenever', 'low priority', 'someday']):
+            priority = 'low'
+
+        # Try to detect deadline
+        deadline = None
+        deadline_patterns = {
+            'tomorrow': 1,
+            'today': 0,
+            'monday': None, 'tuesday': None, 'wednesday': None,
+            'thursday': None, 'friday': None,
+        }
+        for word in deadline_patterns:
+            if word in text.lower():
+                # Simple: just note the word, actual date calculation left to caller
+                deadline = word
+                # Remove deadline word from task text
+                task_text = re.sub(rf'\b{word}\b', '', task_text, flags=re.IGNORECASE).strip()
+                break
+
+        return {
+            'task': task_text or text,
+            'priority': priority,
+            'deadline': deadline
+        }
 
     def _is_legacy_email_format(self, text: str) -> bool:
         """

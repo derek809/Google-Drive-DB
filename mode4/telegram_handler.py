@@ -70,6 +70,9 @@ class TelegramHandler:
                 "pip install python-telegram-bot[job-queue]"
             )
 
+        # Added to prevent crashes when linked by mode4_processor.py
+        self.processor = None
+
         # Try to load from config
         try:
             from m1_config import load_telegram_config
@@ -108,10 +111,10 @@ class TelegramHandler:
         if self._conversation_manager is None:
             try:
                 from conversation_manager import ConversationManager
-                # Will be properly initialized with processor reference later
+                # Initialize with processor reference if available
                 self._conversation_manager = ConversationManager(
                     telegram_handler=self,
-                    mode4_processor=None  # Set by processor on first use
+                    mode4_processor=self.processor
                 )
                 logger.info("Conversation manager initialized")
             except ImportError as e:
@@ -121,8 +124,17 @@ class TelegramHandler:
 
     def set_conversation_processor(self, processor):
         """Set the Mode4Processor reference for conversation manager."""
+        self.processor = processor
         if self.conversation_manager:
             self.conversation_manager.processor = processor
+
+    # ==================
+    # UTILITY METHODS
+    # ==================
+
+    def _escape_html(self, text: str) -> str:
+        """Escape HTML special characters to prevent Telegram parsing errors."""
+        return html.escape(str(text)) if text else ''
 
     # ==================
     # MESSAGE PARSING
@@ -131,45 +143,25 @@ class TelegramHandler:
     def parse_message(self, text: str) -> Dict[str, Any]:
         """
         Parse a Telegram message to extract email reference and instruction.
-
-        Supported formats:
-        - "Re: [subject] - [instruction]"
-        - "From [sender] - [instruction]"
-        - "[subject] - [instruction]"
-        - "latest from [sender] - [instruction]"
-
-        Uses SmartParser (LLM + regex fallback) if enabled, otherwise uses legacy regex.
-
-        Args:
-            text: Raw message text
-
-        Returns:
-            Dict with:
-                - email_reference: Subject or sender to search for
-                - instruction: What to do with the email
-                - search_type: "subject", "sender", or "keyword"
-                - raw_text: Original message
-                - parsed_with: "llm", "rules", or "fallback" (if SmartParser used)
+        Uses SmartParser (LLM) if enabled, otherwise uses legacy regex.
         """
         text = text.strip()
 
-        # Use SmartParser if enabled
+        # Use SmartParser if enabled and linked
         from m1_config import SMART_PARSER_ENABLED
-        if SMART_PARSER_ENABLED:
+        if SMART_PARSER_ENABLED and self.processor and hasattr(self.processor, 'smart_parser'):
             try:
                 parsed = self.processor.smart_parser.parse_with_fallback(text)
-                # Convert SmartParser output to expected format
-                result = {
+                return {
                     'email_reference': parsed.get('email_reference', ''),
                     'instruction': parsed.get('instruction', ''),
                     'search_type': parsed.get('search_type', 'keyword'),
                     'raw_text': text,
                     'valid': True,
-                    'parsed_with': parsed.get('parsed_with', 'unknown')
+                    'parsed_with': parsed.get('parsed_with', 'llm')
                 }
-                return result
             except Exception as e:
-                logger.warning(f"SmartParser failed: {e}, using legacy parser")
+                logger.warning(f"SmartParser failed: {e}, falling back to legacy patterns")
 
         # Legacy regex parsing (backward compatibility)
         result = {
@@ -189,7 +181,7 @@ class TelegramHandler:
             result['valid'] = True
             return result
 
-        # Pattern 2: "From [sender] - [instruction]" or "from [sender] - [instruction]"
+        # Pattern 2: "From [sender] - [instruction]"
         match = re.match(r'^[Ff]rom\s+([^\s-]+(?:@[^\s-]+)?)\s*[-–—]\s*(.+)$', text)
         if match:
             result['email_reference'] = match.group(1).strip()
@@ -261,22 +253,10 @@ class TelegramHandler:
         self.application.add_handler(CommandHandler("help", self._cmd_help))
         self.application.add_handler(CommandHandler("status", self._cmd_status))
         self.application.add_handler(CommandHandler("retry", self._cmd_retry))
-        self.application.add_handler(CommandHandler("synthesize", self._cmd_synthesize))
-        self.application.add_handler(CommandHandler("digest", self._cmd_digest))
 
         # Message handler for processing emails
         self.application.add_handler(
             MessageHandler(filters.TEXT & ~filters.COMMAND, self._handle_message)
-        )
-
-        # Photo handler for image analysis
-        self.application.add_handler(
-            MessageHandler(filters.PHOTO, self._handle_photo)
-        )
-
-        # Document handler for PDFs and files
-        self.application.add_handler(
-            MessageHandler(filters.Document.ALL, self._handle_document)
         )
 
         # Callback query handler for inline buttons
@@ -366,285 +346,6 @@ class TelegramHandler:
             "Send the email reference again to reprocess."
         )
 
-    async def _cmd_synthesize(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /synthesize command to create thread summaries."""
-        user = update.effective_user
-
-        if not self._is_authorized(user.id):
-            await update.message.reply_text("Unauthorized.")
-            return
-
-        # Check if ThreadSynthesizer is enabled
-        from m1_config import THREAD_SYNTHESIZER_ENABLED
-        if not THREAD_SYNTHESIZER_ENABLED:
-            await update.message.reply_text("Thread Synthesizer is disabled in config.")
-            return
-
-        # Parse thread_id from command: "/synthesize 12345"
-        if not context.args or len(context.args) < 1:
-            await update.message.reply_text(
-                "Usage: /synthesize <thread_id>\n\n"
-                "Example: /synthesize 18a1b2c3d4e5f6g7"
-            )
-            return
-
-        thread_id = context.args[0]
-
-        try:
-            await update.message.reply_text(f"Fetching thread history for {thread_id}...")
-
-            # Get thread history
-            history = self.processor.thread_synthesizer.get_thread_history(thread_id)
-
-            if not history:
-                await update.message.reply_text(f"No messages found for thread {thread_id}")
-                return
-
-            await update.message.reply_text(
-                f"Found {len(history)} messages. Generating summary..."
-            )
-
-            # Create synthesis prompt
-            prompt = self.processor.thread_synthesizer.create_synthesis_prompt(history)
-
-            # Send to Claude for synthesis
-            try:
-                # Import Claude client
-                from claude_client import ClaudeClient
-
-                claude = ClaudeClient()
-                synthesis = await claude.synthesize_thread(prompt)
-
-                # Send summary back to user
-                await update.message.reply_text(
-                    f"📊 Thread Summary:\n\n{synthesis}",
-                    parse_mode='Markdown'
-                )
-
-            except Exception as e:
-                logger.error(f"Claude synthesis failed: {e}")
-                await update.message.reply_text(
-                    f"Error generating synthesis: {str(e)}\n\n"
-                    f"Try using Claude API key or check logs."
-                )
-
-        except Exception as e:
-            logger.error(f"Synthesize command error: {e}", exc_info=True)
-            await update.message.reply_text(f"Error: {str(e)}")
-
-    async def _cmd_digest(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle /digest command for on-demand daily digest."""
-        user = update.effective_user
-
-        if not self._is_authorized(user.id):
-            await update.message.reply_text("Unauthorized.")
-            return
-
-        await update.message.reply_text("Generating your digest...")
-
-        try:
-            from on_demand_digest import OnDemandDigest
-            from todo_manager import TodoManager
-            from db_manager import DatabaseManager
-
-            # Get clients from processor if available
-            gmail_client = self.processor.gmail if hasattr(self, 'processor') and self.processor else None
-            claude_client = self.processor.claude if hasattr(self, 'processor') and self.processor else None
-
-            # Initialize managers
-            todo_manager = TodoManager()
-            db_manager = DatabaseManager()
-
-            # Create digest generator
-            digest_gen = OnDemandDigest(
-                gmail_client=gmail_client,
-                todo_manager=todo_manager,
-                claude_client=claude_client,
-                db_manager=db_manager
-            )
-
-            # Generate digest
-            digest = await digest_gen.generate_digest(user.id)
-
-            # Send digest
-            await update.message.reply_text(
-                digest,
-                parse_mode='HTML'
-            )
-
-        except ImportError as e:
-            logger.error(f"Import error for digest: {e}")
-            await update.message.reply_text(
-                f"Digest module not available: {str(e)}\n\n"
-                f"Make sure on_demand_digest.py is in the mode4 directory."
-            )
-        except Exception as e:
-            logger.error(f"Digest command error: {e}", exc_info=True)
-            await update.message.reply_text(f"Error generating digest: {str(e)[:200]}")
-
-    async def _handle_photo(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle incoming photos/images for analysis with Gemini."""
-        user = update.effective_user
-        chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user.id):
-            await update.message.reply_text("Unauthorized.")
-            return
-
-        await update.message.reply_text("Analyzing image...")
-
-        try:
-            import os
-            import tempfile
-            from gemini_client import GeminiClient
-
-            # Get the highest resolution photo
-            photo = update.message.photo[-1]
-            file = await context.bot.get_file(photo.file_id)
-
-            # Download to temp file
-            temp_dir = tempfile.gettempdir()
-            temp_path = os.path.join(temp_dir, f"mode4_{photo.file_id}.jpg")
-
-            await file.download_to_drive(temp_path)
-            logger.info(f"Downloaded image to {temp_path}")
-
-            # Analyze with Gemini
-            gemini = GeminiClient()
-
-            if not gemini.is_available():
-                await update.message.reply_text(
-                    "Gemini API not configured.\n\n"
-                    "Set GOOGLE_API_KEY or GEMINI_API_KEY in your environment."
-                )
-                return
-
-            # Check if user included a caption as a custom prompt
-            caption = update.message.caption
-            if caption:
-                analysis = await gemini.analyze_image(temp_path, prompt=caption)
-            else:
-                # Auto-detect type of analysis needed
-                analysis = await gemini.analyze_image(temp_path)
-
-            # Clean up temp file
-            try:
-                os.remove(temp_path)
-            except:
-                pass
-
-            # Send analysis (escape HTML in response)
-            response = f"<b>Image Analysis:</b>\n\n{html.escape(analysis)}"
-
-            # Telegram message limit is 4096 chars
-            if len(response) > 4000:
-                response = response[:4000] + "...\n\n<i>(truncated)</i>"
-
-            await update.message.reply_text(response, parse_mode='HTML')
-
-        except ImportError as e:
-            logger.error(f"Gemini import error: {e}")
-            await update.message.reply_text(
-                "Gemini client not available.\n\n"
-                "Make sure google-generativeai is installed:\n"
-                "pip install google-generativeai"
-            )
-        except Exception as e:
-            logger.error(f"Photo analysis error: {e}", exc_info=True)
-            await update.message.reply_text(f"Error analyzing image: {str(e)[:200]}")
-
-    async def _handle_document(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
-        """Handle incoming documents (PDFs, etc.) for analysis."""
-        user = update.effective_user
-        chat_id = update.effective_chat.id
-
-        if not self._is_authorized(user.id):
-            await update.message.reply_text("Unauthorized.")
-            return
-
-        document = update.message.document
-        file_name = document.file_name or "document"
-        mime_type = document.mime_type or ""
-
-        # Check file type
-        supported_types = ['application/pdf', 'image/']
-        is_supported = any(mime_type.startswith(t) for t in supported_types)
-
-        if not is_supported:
-            await update.message.reply_text(
-                f"File type not supported for analysis: {mime_type}\n\n"
-                "I can analyze: images, PDFs, and screenshots."
-            )
-            return
-
-        await update.message.reply_text(f"Analyzing {file_name}...")
-
-        try:
-            import os
-            import tempfile
-
-            # Download file
-            file = await context.bot.get_file(document.file_id)
-            temp_dir = tempfile.gettempdir()
-
-            # Determine extension
-            ext = os.path.splitext(file_name)[1] or '.bin'
-            temp_path = os.path.join(temp_dir, f"mode4_{document.file_id}{ext}")
-
-            await file.download_to_drive(temp_path)
-            logger.info(f"Downloaded document to {temp_path}")
-
-            # Handle based on type
-            if mime_type == 'application/pdf':
-                # For PDFs, we'd need to convert to images first
-                # For now, inform user
-                await update.message.reply_text(
-                    "PDF analysis requires image conversion.\n\n"
-                    "For now, please take a screenshot of the relevant page "
-                    "and send it as an image."
-                )
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
-                return
-
-            elif mime_type.startswith('image/'):
-                # Analyze as image
-                from gemini_client import GeminiClient
-                gemini = GeminiClient()
-
-                if not gemini.is_available():
-                    await update.message.reply_text(
-                        "Gemini API not configured.\n\n"
-                        "Set GOOGLE_API_KEY or GEMINI_API_KEY."
-                    )
-                    return
-
-                caption = update.message.caption
-                if caption:
-                    analysis = await gemini.analyze_image(temp_path, prompt=caption)
-                else:
-                    # Treat as document
-                    result = await gemini.analyze_document(temp_path)
-                    analysis = result.get('raw_response', str(result))
-
-                # Clean up
-                try:
-                    os.remove(temp_path)
-                except:
-                    pass
-
-                response = f"<b>Document Analysis:</b>\n\n{html.escape(analysis)}"
-                if len(response) > 4000:
-                    response = response[:4000] + "...\n\n<i>(truncated)</i>"
-
-                await update.message.reply_text(response, parse_mode='HTML')
-
-        except Exception as e:
-            logger.error(f"Document analysis error: {e}", exc_info=True)
-            await update.message.reply_text(f"Error analyzing document: {str(e)[:200]}")
-
     async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming text messages."""
         user = update.effective_user
@@ -660,38 +361,30 @@ class TelegramHandler:
 
         logger.info(f"Message from {user.id}: {text[:100]}")
 
-        # NEW: Use ConversationManager first for natural language handling
+        # Try conversation manager first for natural language handling
         if self.conversation_manager:
             try:
                 result = await self.conversation_manager.handle_message(text, user.id, chat_id)
-
-                # If ConversationManager handled it completely, we're done
                 if result.get('handled'):
                     logger.info(f"Message handled by conversation manager: {result.get('routed_to')}")
                     return
-
-                # Otherwise, it detected legacy format or email request - continue to parser
-                logger.info(f"Conversation manager routing to: {result.get('routed_to')}")
-
+                # If not handled but has parsed_message, use it
+                if result.get('parsed_message'):
+                    parsed = result['parsed_message']
+                    if self.message_callback and parsed.get('valid'):
+                        await self.message_callback(parsed, chat_id, user.id)
+                    return
             except Exception as e:
-                logger.error(f"ConversationManager error: {e}", exc_info=True)
-                # Fall through to legacy parser
+                logger.warning(f"Conversation manager error: {e}, falling back to parse_message")
 
-        # Parse the message (legacy format or email processing)
+        # Parse the message using legacy parser
         parsed = self.parse_message(text)
 
         if not parsed.get('valid'):
-            # More helpful message that doesn't assume email format
             await update.message.reply_text(
-                "I'm not sure what you'd like me to do.\n\n"
-                "<b>Try one of these:</b>\n"
-                "• Just say hi or ask for help\n"
-                "• <i>Draft email to Jason about invoice</i>\n"
-                "• <i>Add call Sarah to my todos</i>\n"
-                "• <i>Show my tasks</i>\n"
-                "• <b>/digest</b> for your daily summary\n\n"
-                "Type <b>help</b> to see all my capabilities!",
-                parse_mode='HTML'
+                "Could not parse your message.\n\n"
+                "Try format: Re: [subject] - [instruction]\n"
+                "Example: Re: W9 Request - send W9 and wiring"
             )
             return
 
@@ -840,23 +533,18 @@ class TelegramHandler:
             recommendation=recommendation
         )
 
-        # Build message
-        subject = email_data.get('subject', '(no subject)')[:50]
-        sender = email_data.get('sender_name', email_data.get('sender_email', 'Unknown'))
-        body_preview = email_data.get('body', '')[:150].replace('\n', ' ')
-
-        # Escape HTML special characters to prevent parsing errors
-        sender_escaped = html.escape(sender)
-        subject_escaped = html.escape(subject)
-        body_preview_escaped = html.escape(body_preview)
-        instruction_escaped = html.escape(instruction)
-        recommendation_escaped = html.escape(recommendation)
+        # Build message - escape HTML to prevent parsing errors with email addresses
+        subject = self._escape_html(email_data.get('subject', '(no subject)')[:50])
+        sender = self._escape_html(email_data.get('sender_name', email_data.get('sender_email', 'Unknown')))
+        body_preview = self._escape_html(email_data.get('body', '')[:150].replace('\n', ' '))
+        instruction_escaped = self._escape_html(instruction)
+        recommendation_escaped = self._escape_html(recommendation)
 
         message = (
-            f"📧 <b>Email Found</b>\n\n"
-            f"<b>From:</b> {sender_escaped}\n"
-            f"<b>Subject:</b> {subject_escaped}\n"
-            f"<b>Preview:</b> {body_preview_escaped}...\n\n"
+            f"<b>Email Found</b>\n\n"
+            f"<b>From:</b> {sender}\n"
+            f"<b>Subject:</b> {subject}\n"
+            f"<b>Preview:</b> {body_preview}...\n\n"
             f"<b>Your instruction:</b> {instruction_escaped}\n\n"
             f"<b>Recommendation:</b> {recommendation_escaped}\n\n"
             f"Choose LLM for drafting:"
@@ -866,6 +554,9 @@ class TelegramHandler:
         keyboard = [
             [
                 InlineKeyboardButton("⚡ Ollama (Fast)", callback_data=f"draft:ollama:{draft_id}"),
+            ],
+            [
+                InlineKeyboardButton("🚀 Kimi K2 (Smart)", callback_data=f"draft:kimi:{draft_id}"),
                 InlineKeyboardButton("🧠 Claude (Smart)", callback_data=f"draft:claude:{draft_id}")
             ]
         ]
@@ -932,10 +623,14 @@ class TelegramHandler:
 
         if action == 'ollama':
             await self._draft_with_ollama(query, draft_id, ctx)
+        elif action == 'kimi':
+            await self._draft_with_kimi(query, draft_id, ctx)
         elif action == 'claude':
             await self._draft_with_claude(query, draft_id, ctx)
         elif action == 'escalate':
             await self._escalate_to_claude(query, draft_id, ctx)
+        elif action == 'escalate_kimi':
+            await self._escalate_to_kimi(query, draft_id, ctx)
         elif action == 'approve':
             await self._approve_and_save(query, draft_id, ctx)
         elif action == 'edit':
@@ -953,7 +648,7 @@ class TelegramHandler:
             from ollama_client import OllamaClient
             ollama = OllamaClient()
 
-            result = ollama.generate_email_draft(
+            result = ollama.generate_draft(
                 email_data=ctx['email_data'],
                 instruction=ctx['instruction'],
                 template=ctx.get('pattern_match', {}).get('template') if ctx.get('pattern_match') else None
@@ -989,6 +684,51 @@ class TelegramHandler:
                 f"❌ Error generating draft: {str(e)[:200]}\n\n"
                 f"Try Claude instead?"
             )
+
+    async def _draft_with_kimi(self, query, draft_id: str, ctx: Dict[str, Any]):
+        """Generate draft using Kimi K2."""
+        await query.edit_message_text("⏳ Generating draft with Kimi K2...")
+
+        try:
+            from kimi_client import KimiClient
+            kimi = KimiClient()
+
+            if not kimi.is_available():
+                await query.edit_message_text(
+                    "❌ Kimi API not configured.\n\n"
+                    "Set NVIDIA_API_KEY in m1_config.py or environment."
+                )
+                return
+
+            result = kimi.generate_email_draft(
+                email_data=ctx['email_data'],
+                instruction=ctx['instruction'],
+                template=ctx.get('pattern_match', {}).get('template') if ctx.get('pattern_match') else None
+            )
+
+            if result.get('success'):
+                draft_text = result.get('draft_text', '')
+
+                # Update context
+                self._update_draft_context(draft_id, {
+                    'draft_text': draft_text,
+                    'model_used': 'kimi',
+                    'confidence': 95  # Kimi drafts are high confidence
+                })
+
+                # Show draft with action buttons
+                await self._show_draft_preview(
+                    query, draft_id, draft_text, 'Kimi K2', 95
+                )
+            else:
+                error = result.get('error', 'Unknown error')
+                await query.edit_message_text(f"❌ Kimi draft failed: {error}")
+
+            del kimi
+
+        except Exception as e:
+            logger.error(f"Kimi draft error: {e}")
+            await query.edit_message_text(f"❌ Error: {str(e)[:200]}")
 
     async def _draft_with_claude(self, query, draft_id: str, ctx: Dict[str, Any]):
         """Generate draft using Claude."""
@@ -1091,6 +831,62 @@ class TelegramHandler:
             logger.error(f"Claude escalation error: {e}")
             await query.edit_message_text(f"❌ Error: {str(e)[:200]}")
 
+    async def _escalate_to_kimi(self, query, draft_id: str, ctx: Dict[str, Any]):
+        """Refine Ollama draft with Kimi K2."""
+        ollama_draft = ctx.get('draft_text')
+        if not ollama_draft:
+            await query.edit_message_text("No draft to refine.")
+            return
+
+        await query.edit_message_text("⏳ Refining draft with Kimi K2...")
+
+        try:
+            from kimi_client import KimiClient
+            kimi = KimiClient()
+
+            if not kimi.is_available():
+                await query.edit_message_text(
+                    "❌ Kimi API not configured.\n\n"
+                    "Set NVIDIA_API_KEY in m1_config.py or environment."
+                )
+                return
+
+            result = kimi.refine_draft(
+                original_draft=ollama_draft,
+                email_data=ctx['email_data'],
+                instructions="Improve tone, clarity, and completeness"
+            )
+
+            if result.get('success'):
+                refined_draft = result.get('draft_text', '')
+                changes = result.get('changes_made', [])
+
+                # Update context
+                self._update_draft_context(draft_id, {
+                    'draft_text': refined_draft,
+                    'model_used': 'kimi_refined',
+                    'original_draft': ollama_draft,
+                    'changes_made': changes,
+                    'confidence': 95
+                })
+
+                # Show refined draft
+                changes_text = '\n'.join(f"• {c}" for c in changes[:3]) if changes else "Minor improvements"
+
+                await self._show_draft_preview(
+                    query, draft_id, refined_draft, 'Kimi K2 (refined)',
+                    95, extra_info=f"\n\n<b>Changes:</b>\n{changes_text}"
+                )
+            else:
+                error = result.get('error', 'Unknown error')
+                await query.edit_message_text(f"❌ Refinement failed: {error}")
+
+            del kimi
+
+        except Exception as e:
+            logger.error(f"Kimi escalation error: {e}")
+            await query.edit_message_text(f"❌ Error: {str(e)[:200]}")
+
     async def _show_draft_preview(
         self,
         query,
@@ -1115,19 +911,13 @@ class TelegramHandler:
         if len(draft_text) > 300:
             preview += "..."
 
-        # Escape HTML special characters
-        to_escaped = html.escape(to)
-        subject_escaped = html.escape(subject[:50])
-        preview_escaped = html.escape(preview)
-        extra_info_escaped = html.escape(extra_info) if extra_info else ""
-
         message = (
             f"📝 <b>Draft Preview</b>\n\n"
-            f"<b>To:</b> {to_escaped}\n"
-            f"<b>Subject:</b> {subject_escaped}\n"
+            f"<b>To:</b> {to}\n"
+            f"<b>Subject:</b> {subject[:50]}\n"
             f"<b>Model:</b> {model} ({confidence}% confidence)\n\n"
-            f"<b>Draft:</b>\n{preview_escaped}"
-            f"{extra_info_escaped}"
+            f"<b>Draft:</b>\n{preview}"
+            f"{extra_info}"
         )
 
         # Build action buttons
@@ -1135,11 +925,12 @@ class TelegramHandler:
             InlineKeyboardButton("✅ Approve", callback_data=f"draft:approve:{draft_id}"),
         ]]
 
-        # Add escalate option if Ollama was used
+        # Add refine options if Ollama was used
         if model == 'Ollama':
-            keyboard[0].append(
+            keyboard.append([
+                InlineKeyboardButton("🔄 Refine w/ Kimi", callback_data=f"draft:escalate_kimi:{draft_id}"),
                 InlineKeyboardButton("🔄 Refine w/ Claude", callback_data=f"draft:escalate:{draft_id}")
-            )
+            ])
 
         keyboard.append([
             InlineKeyboardButton("❌ Cancel", callback_data=f"draft:cancel:{draft_id}")
@@ -1177,18 +968,12 @@ class TelegramHandler:
             if result.get('success'):
                 draft_url = result.get('draft_url', '')
 
-                # Escape HTML special characters
-                sender_email = html.escape(email_data.get('sender_email', 'Unknown'))
-                subject = html.escape(email_data.get('subject', '')[:40])
-                model_used = html.escape(ctx.get('model_used', 'Unknown'))
-                draft_url_escaped = html.escape(draft_url)
-
                 message = (
                     f"✅ <b>Draft Saved!</b>\n\n"
-                    f"<b>To:</b> {sender_email}\n"
-                    f"<b>Subject:</b> Re: {subject}\n"
-                    f"<b>Model:</b> {model_used}\n\n"
-                    f"<a href=\"{draft_url_escaped}\">Open in Gmail</a>"
+                    f"<b>To:</b> {email_data.get('sender_email', 'Unknown')}\n"
+                    f"<b>Subject:</b> Re: {email_data.get('subject', '')[:40]}\n"
+                    f"<b>Model:</b> {ctx.get('model_used', 'Unknown')}\n\n"
+                    f"<a href=\"{draft_url}\">Open in Gmail</a>"
                 )
 
                 await query.edit_message_text(
@@ -1233,13 +1018,25 @@ class TelegramHandler:
 
         Args:
             chat_id: Telegram chat ID
-            message: Message text to send (should have HTML already escaped for dynamic content)
+            message: Message text to send
         """
         await self.bot.send_message(
             chat_id=chat_id,
             text=message,
             parse_mode='HTML'
         )
+
+    async def send_message(self, chat_id: int = None, text: str = ""):
+        """
+        Send a message to a chat (alias for send_response).
+
+        Args:
+            chat_id: Telegram chat ID (uses admin_chat_id if None)
+            text: Message text to send
+        """
+        target_chat = chat_id or self.admin_chat_id
+        if target_chat:
+            await self.send_response(target_chat, text)
 
     async def send_draft_notification(
         self,
@@ -1267,16 +1064,12 @@ class TelegramHandler:
         else:
             status_emoji = "Escalated"
 
-        # Escape HTML special characters
-        email_subject_escaped = html.escape(email_subject[:50])
-        draft_url_escaped = html.escape(draft_url)
-
         message = (
             f"Draft Created\n\n"
-            f"Re: {email_subject_escaped}\n"
+            f"Re: {email_subject[:50]}\n"
             f"Confidence: {confidence}%\n"
             f"Status: {status_emoji}\n\n"
-            f"<a href=\"{draft_url_escaped}\">Open Draft in Gmail</a>"
+            f"<a href=\"{draft_url}\">Open Draft in Gmail</a>"
         )
 
         await self.send_response(chat_id, message)
@@ -1288,14 +1081,10 @@ class TelegramHandler:
         error: str
     ):
         """Send an error notification."""
-        # Escape HTML special characters
-        email_reference_escaped = html.escape(email_reference[:50])
-        error_escaped = html.escape(error[:200])
-
         message = (
             f"Error Processing Email\n\n"
-            f"Reference: {email_reference_escaped}\n"
-            f"Error: {error_escaped}"
+            f"Reference: {email_reference[:50]}\n"
+            f"Error: {error[:200]}"
         )
         await self.send_response(chat_id, message)
 
@@ -1307,15 +1096,11 @@ class TelegramHandler:
         reason: str
     ):
         """Send an escalation notification (low confidence)."""
-        # Escape HTML special characters
-        email_subject_escaped = html.escape(email_subject[:50])
-        reason_escaped = html.escape(reason)
-
         message = (
             f"Escalated to Claude Desktop\n\n"
-            f"Re: {email_subject_escaped}\n"
+            f"Re: {email_subject[:50]}\n"
             f"Confidence: {confidence}%\n"
-            f"Reason: {reason_escaped}\n\n"
+            f"Reason: {reason}\n\n"
             f"Handle via Claude Desktop when at work laptop."
         )
         await self.send_response(chat_id, message)
@@ -1369,6 +1154,7 @@ def test_message_parsing():
         handler = TelegramHandler.__new__(TelegramHandler)
         handler.bot_token = "test"
         handler.allowed_users = []
+        handler.processor = None
 
         test_messages = [
             "Re: W9 Request - send W9 and wiring instructions",

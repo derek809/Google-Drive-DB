@@ -78,11 +78,41 @@ class OllamaClient:
     def is_available(self) -> bool:
         """Check if Ollama is running and model is available."""
         try:
-            models = ollama.list()
-            model_names = [m['name'].split(':')[0] for m in models.get('models', [])]
+            response = ollama.list()
+            # Handle both old dict format and new object format
+            if hasattr(response, 'models'):
+                # New format: response.models is a list of Model objects
+                model_names = [m.model.split(':')[0] for m in response.models]
+            else:
+                # Old format: response is a dict with 'models' key
+                model_names = [m['name'].split(':')[0] for m in response.get('models', [])]
             return self.model.split(':')[0] in model_names
         except Exception:
             return False
+
+    def generate(self, prompt: str, max_tokens: int = 500) -> str:
+        """
+        Generate text from a prompt.
+
+        Args:
+            prompt: The prompt to send to the model
+            max_tokens: Maximum tokens to generate
+
+        Returns:
+            Generated text string
+        """
+        try:
+            response = ollama.generate(
+                model=self.model,
+                prompt=prompt,
+                options={
+                    'temperature': self.temperature,
+                    'num_predict': max_tokens
+                }
+            )
+            return response.get('response', '')
+        except Exception as e:
+            raise OllamaClientError(f"Generation failed: {e}")
 
     # ==================
     # EMAIL TRIAGE

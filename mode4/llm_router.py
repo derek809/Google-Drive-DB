@@ -191,11 +191,12 @@ class LLMRouter:
         Check which LLMs are available.
 
         Returns:
-            Dict with 'ollama' and 'claude' availability booleans
+            Dict with 'ollama', 'claude', and 'kimi' availability booleans
         """
         status = {
             'ollama': False,
-            'claude': False
+            'claude': False,
+            'kimi': False
         }
 
         # Check Ollama
@@ -216,6 +217,15 @@ class LLMRouter:
         except Exception:
             pass
 
+        # Check Kimi
+        try:
+            from kimi_client import KimiClient
+            client = KimiClient()
+            status['kimi'] = client.is_available()
+            del client
+        except Exception:
+            pass
+
         return status
 
     def get_fallback_llm(self) -> Optional[str]:
@@ -223,12 +233,30 @@ class LLMRouter:
         Get fallback LLM if primary is unavailable.
 
         Returns:
-            'ollama', 'claude', or None if neither available
+            'ollama', 'kimi', 'claude', or None if none available
         """
         status = self.get_availability_status()
 
         if status['ollama']:
             return 'ollama'
+        elif status['kimi']:
+            return 'kimi'
+        elif status['claude']:
+            return 'claude'
+        else:
+            return None
+
+    def get_smart_llm(self) -> Optional[str]:
+        """
+        Get the best available 'smart' LLM (Kimi or Claude).
+
+        Returns:
+            'kimi', 'claude', or None if neither available
+        """
+        status = self.get_availability_status()
+
+        if status['kimi']:
+            return 'kimi'
         elif status['claude']:
             return 'claude'
         else:
@@ -343,10 +371,14 @@ def test_llm_router():
     print("\nChecking LLM availability...")
     status = router.get_availability_status()
     print(f"  Ollama: {'Available' if status['ollama'] else 'Not available'}")
+    print(f"  Kimi:   {'Available' if status['kimi'] else 'Not available'}")
     print(f"  Claude: {'Available' if status['claude'] else 'Not available'}")
 
     fallback = router.get_fallback_llm()
     print(f"  Fallback: {fallback or 'None available'}")
+
+    smart_llm = router.get_smart_llm()
+    print(f"  Smart LLM: {smart_llm or 'None available'}")
 
     print("\n" + "=" * 60)
     print("LLM Router test complete!")

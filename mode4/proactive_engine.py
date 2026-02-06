@@ -353,6 +353,26 @@ class ProactiveEngine:
             lines.append(f"🟢 LOW PRIORITY ({len(low)} items)")
             lines.append("")
 
+        # Add recent skills/ideas (if enabled)
+        try:
+            from m1_config import SKILL_INCLUDE_IN_MORNING_BRIEF
+            if SKILL_INCLUDE_IN_MORNING_BRIEF:
+                from skill_manager import SkillManager
+                skill_mgr = SkillManager()
+                pending_skills = skill_mgr.list_skills(status='Pending', limit=5)
+
+                if pending_skills:
+                    lines.append("💡 RECENT IDEAS:")
+                    for skill in pending_skills:
+                        action_count = len(skill.get('action_items', [])) if skill.get('action_items') else 0
+                        skill_line = f"• #{skill['slug'][:25]}: {skill['title'][:35]}"
+                        if action_count > 0:
+                            skill_line += f" ({action_count} actions)"
+                        lines.append(skill_line)
+                    lines.append("")
+        except Exception as e:
+            logger.warning(f"Could not include skills in morning brief: {e}")
+
         lines.append("Reply with number or tell me what you need!")
 
         message = "\n".join(lines)
