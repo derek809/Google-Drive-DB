@@ -88,6 +88,12 @@ class ConversationManager:
         self._context_store: Dict[int, Dict[str, Any]] = {}
         self._last_cleanup = time.time()
         self._context_timeout = 1800  # 30 minutes
+        self._max_contexts = 50  # Prevent unbounded memory growth
+        try:
+            from m1_config import MAX_CONVERSATION_CONTEXTS
+            self._max_contexts = MAX_CONVERSATION_CONTEXTS
+        except (ImportError, AttributeError):
+            pass
 
     # ==================
     # CORE METHODS
@@ -449,27 +455,34 @@ Return ONLY the intent word (nothing else):"""
             return await self._handle_todo_add(text, chat_id)
 
         elif intent == Intent.TODO_LIST:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_todo_list(chat_id, user_id)
 
         # Info requests
         elif intent == Intent.INFO_DIGEST:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_digest(chat_id)
 
         elif intent == Intent.INFO_STATUS:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_status(chat_id)
 
         elif intent == Intent.INFO_UNREAD:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_unread(chat_id)
 
         elif intent == Intent.EMAIL_INBOX:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_mcp_inbox(chat_id, user_id)
 
         # Idea bouncing
         elif intent == Intent.IDEA_BOUNCE:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_idea_bounce(text, user_id, chat_id)
 
         # Skill management
         elif intent == Intent.SKILL_FINALIZE:
+            await self.telegram.send_typing(chat_id)
             return await self._handle_skill_finalize(text, user_id, chat_id)
 
         elif intent == Intent.SKILL_QUICK:
@@ -1448,6 +1461,20 @@ Just ask naturally and I'll figure out what you need!"""
 
         self._context_store[user_id].update(updates)
         self._context_store[user_id]['timestamp'] = time.time()
+
+        # Evict oldest contexts if over limit
+        if len(self._context_store) > self._max_contexts:
+            self._evict_oldest_contexts()
+
+    def _evict_oldest_contexts(self):
+        """Remove oldest contexts when over the max limit."""
+        while len(self._context_store) > self._max_contexts:
+            oldest_id = min(
+                self._context_store,
+                key=lambda uid: self._context_store[uid].get('timestamp', 0)
+            )
+            del self._context_store[oldest_id]
+            logger.debug(f"Evicted oldest context for user {oldest_id}")
 
     def store_reference(self, user_id: int, ref_type: str, ref_data: Any):
         """Store a reference for later use (it, that, this, etc.)."""

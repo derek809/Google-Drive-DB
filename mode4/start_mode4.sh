@@ -34,9 +34,9 @@ echo "📱 Starting Telegram bot..."
 echo "   (Press Ctrl+C to stop)"
 echo ""
 
+# Cleanup on exit (must be set before the blocking python call)
+trap 'echo ""; echo "👋 Shutting down Mode 4..."; exit 0' INT TERM
+
 # Start Mode 4
 cd "$(dirname "$0")"
 python3 mode4_processor.py
-
-# Cleanup on exit
-trap 'echo ""; echo "👋 Shutting down Mode 4..."; exit 0' INT TERM

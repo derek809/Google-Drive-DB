@@ -38,6 +38,16 @@ TELEGRAM_CONFIG_PATH = os.path.join(CREDENTIALS_DIR, "telegram_config.json")
 
 # Log file
 LOG_PATH = os.path.join(BASE_DIR, "mode4.log")
+LOG_MAX_BYTES = 2 * 1024 * 1024   # 2 MB max per log file
+LOG_BACKUP_COUNT = 3               # Keep 3 rotated backups
+
+
+# ============================================
+# MEMORY LIMITS
+# ============================================
+
+MAX_CONVERSATION_CONTEXTS = 50     # Max user contexts kept in memory
+MAX_DRAFT_CONTEXTS = 100           # Max pending draft sessions in memory
 
 
 # ============================================

@@ -24,16 +24,12 @@ from typing import Dict, List, Optional, Any, Callable
 # Telegram library
 try:
     from telegram import Update, Bot, InlineKeyboardButton, InlineKeyboardMarkup
+    from telegram.constants import ChatAction
     from telegram.ext import Application, CommandHandler, MessageHandler, ContextTypes, filters, CallbackQueryHandler
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
 
-# Set up logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO
-)
 logger = logging.getLogger(__name__)
 
 
@@ -101,6 +97,12 @@ class TelegramHandler:
         # {draft_id: {context_data, timestamp, user_id, chat_id}}
         self._draft_contexts: Dict[str, Dict[str, Any]] = {}
         self._context_expiry_minutes = 30
+        self._max_draft_contexts = 100  # Prevent unbounded memory growth
+        try:
+            from m1_config import MAX_DRAFT_CONTEXTS
+            self._max_draft_contexts = MAX_DRAFT_CONTEXTS
+        except (ImportError, AttributeError):
+            pass
 
         # Conversation manager for natural language interface (lazy loaded)
         self._conversation_manager = None
@@ -131,6 +133,13 @@ class TelegramHandler:
     # ==================
     # UTILITY METHODS
     # ==================
+
+    async def send_typing(self, chat_id: int):
+        """Send typing indicator (chat bubble) so user knows the bot is working."""
+        try:
+            await self.bot.send_chat_action(chat_id=chat_id, action=ChatAction.TYPING)
+        except Exception:
+            pass  # Non-critical, don't break flow
 
     def _escape_html(self, text: str) -> str:
         """Escape HTML special characters to prevent Telegram parsing errors."""
@@ -361,6 +370,9 @@ class TelegramHandler:
 
         logger.info(f"Message from {user.id}: {text[:100]}")
 
+        # Show typing bubble so user knows bot is working
+        await self.send_typing(chat_id)
+
         # Try conversation manager first for natural language handling
         if self.conversation_manager:
             try:
@@ -459,6 +471,15 @@ class TelegramHandler:
         }
         # Cleanup old contexts
         self._cleanup_expired_contexts()
+
+        # Evict oldest if still over limit
+        while len(self._draft_contexts) > self._max_draft_contexts:
+            oldest_id = min(
+                self._draft_contexts,
+                key=lambda did: self._draft_contexts[did].get('timestamp', 0)
+            )
+            del self._draft_contexts[oldest_id]
+            logger.debug(f"Evicted oldest draft context: {oldest_id}")
 
     def _get_draft_context(self, draft_id: str) -> Optional[Dict[str, Any]]:
         """Get draft context by ID."""
@@ -642,6 +663,7 @@ class TelegramHandler:
 
     async def _draft_with_ollama(self, query, draft_id: str, ctx: Dict[str, Any]):
         """Generate draft using Ollama."""
+        await self.send_typing(query.message.chat_id)
         await query.edit_message_text("⏳ Generating draft with Ollama...")
 
         try:
@@ -687,6 +709,7 @@ class TelegramHandler:
 
     async def _draft_with_kimi(self, query, draft_id: str, ctx: Dict[str, Any]):
         """Generate draft using Kimi K2."""
+        await self.send_typing(query.message.chat_id)
         await query.edit_message_text("⏳ Generating draft with Kimi K2...")
 
         try:
@@ -732,6 +755,7 @@ class TelegramHandler:
 
     async def _draft_with_claude(self, query, draft_id: str, ctx: Dict[str, Any]):
         """Generate draft using Claude."""
+        await self.send_typing(query.message.chat_id)
         await query.edit_message_text("⏳ Generating draft with Claude...")
 
         try:
@@ -782,6 +806,7 @@ class TelegramHandler:
             await query.edit_message_text("No draft to escalate.")
             return
 
+        await self.send_typing(query.message.chat_id)
         await query.edit_message_text("⏳ Refining draft with Claude...")
 
         try:
@@ -838,6 +863,7 @@ class TelegramHandler:
             await query.edit_message_text("No draft to refine.")
             return
 
+        await self.send_typing(query.message.chat_id)
         await query.edit_message_text("⏳ Refining draft with Kimi K2...")
 
         try:
@@ -951,6 +977,7 @@ class TelegramHandler:
             await query.edit_message_text("No draft to save.")
             return
 
+        await self.send_typing(query.message.chat_id)
         await query.edit_message_text("⏳ Saving draft to Gmail...")
 
         try:

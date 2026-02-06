@@ -19,19 +19,32 @@ import os
 import sys
 import asyncio
 import logging
+from logging.handlers import RotatingFileHandler
 import html
 from datetime import datetime
 from typing import Dict, Any, Optional
 
-# Set up logging
-logging.basicConfig(
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.INFO,
-    handlers=[
-        logging.StreamHandler(sys.stdout),
-        logging.FileHandler('mode4.log', encoding='utf-8')
-    ]
+# Set up logging with rotation to prevent unbounded log growth
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+_log_fmt = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+
+_console = logging.StreamHandler(sys.stdout)
+_console.setFormatter(_log_fmt)
+
+_file = RotatingFileHandler(
+    os.path.join(_base_dir, 'mode4.log'),
+    maxBytes=2 * 1024 * 1024,  # 2 MB
+    backupCount=3,
+    encoding='utf-8'
 )
+_file.setFormatter(_log_fmt)
+
+logging.basicConfig(level=logging.INFO, handlers=[_console, _file])
+
+# Suppress noisy httpx polling logs (one line every ~10 seconds)
+logging.getLogger("httpx").setLevel(logging.WARNING)
+logging.getLogger("httpcore").setLevel(logging.WARNING)
+
 logger = logging.getLogger(__name__)
 
 # Add parent directory to path for imports
@@ -101,6 +114,9 @@ class Mode4Processor:
         self._proactive_engine: Optional[ProactiveEngine] = None
         self._claude: Optional[ClaudeClient] = None
         self._kimi: Optional[KimiClient] = None
+
+        # Background task tracking for graceful shutdown
+        self._background_tasks: list = []
 
         # State tracking
         self.last_error: Optional[str] = None
@@ -240,9 +256,10 @@ class Mode4Processor:
 
         logger.info("Starting Proactive Engine background workers...")
 
-        # Start worker loop in background
-        asyncio.create_task(self.proactive_engine.worker_loop())
-        asyncio.create_task(self.proactive_engine.schedule_morning_digest())
+        # Start worker loops and store references for graceful shutdown
+        task1 = asyncio.create_task(self.proactive_engine.worker_loop())
+        task2 = asyncio.create_task(self.proactive_engine.schedule_morning_digest())
+        self._background_tasks.extend([task1, task2])
 
     # ==================
     # MAIN PROCESSING
@@ -277,6 +294,7 @@ class Mode4Processor:
 
         try:
             # Step 1: Search for email
+            await self.telegram.send_typing(chat_id)
             email_reference_escaped = html.escape(email_reference[:50])
             await self.telegram.send_response(
                 chat_id,
@@ -619,6 +637,13 @@ class Mode4Processor:
 
     def cleanup(self):
         """Clean up resources."""
+        # Cancel background tasks
+        for task in self._background_tasks:
+            if not task.done():
+                task.cancel()
+                logger.info(f"Cancelled background task: {task.get_name()}")
+        self._background_tasks.clear()
+
         if self._sheets:
             self._sheets.close()
         if self._pattern_matcher:
