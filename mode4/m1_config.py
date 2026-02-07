@@ -226,6 +226,20 @@ CONVERSATION_PROACTIVE_SUGGESTIONS = True
 
 
 # ============================================
+# ACTION REGISTRY SYSTEM
+# ============================================
+
+# Feature flag - set to True to enable the Action Registry layer
+# between intent detection and execution. When False, the system
+# falls through to the existing direct routing flow.
+ACTION_REGISTRY_ENABLED = True
+
+# Confidence threshold below which the registry triggers a
+# clarification loop instead of guessing.
+ACTION_REGISTRY_CONFIDENCE_GATE = 0.65
+
+
+# ============================================
 # HELPER FUNCTIONS
 # ============================================
 
