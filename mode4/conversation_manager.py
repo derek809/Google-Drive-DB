@@ -7,13 +7,15 @@ Handles:
 - Intent classification and routing
 - Natural language understanding
 - Context management
+- Action Registry integration (parameter extraction, validation, session state)
 """
 
+import re as _re
 import time
 import random
 import logging
 from enum import Enum
-from typing import Dict, Any, Optional, TYPE_CHECKING
+from typing import Dict, Any, List, Optional, Tuple, TYPE_CHECKING
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +97,69 @@ class ConversationManager:
         except (ImportError, AttributeError):
             pass
 
+        # --- Action Registry System ---
+        self._action_registry_enabled = False
+        self._registry_initialized = False
+        try:
+            from m1_config import ACTION_REGISTRY_ENABLED
+            self._action_registry_enabled = ACTION_REGISTRY_ENABLED
+        except (ImportError, AttributeError):
+            pass
+
+        # Lazy-init registry components on first use
+        self._extractor = None
+        self._validator = None
+        self._session_state = None
+        self._context_mgr = None
+        self._notifier = None
+        self._update_stream = None
+        self._confidence_gate_threshold = 0.65
+
+    # ==================
+    # ACTION REGISTRY BOOTSTRAP
+    # ==================
+
+    def _init_action_registry(self):
+        """Lazy-initialize Action Registry components (requires DB + LLM clients)."""
+        if self._registry_initialized:
+            return
+        try:
+            from db_manager import DatabaseManager
+            from core.actions import ACTIONS, get_action_schema, get_action_name
+            from core.action_extractor import ActionExtractor
+            from core.action_validator import ActionValidator
+            from core.session_state import SessionState
+            from core.context_manager import ContextManager
+            from core.notification_router import NotificationRouter
+            from core.update_stream import UpdateStream
+
+            db = DatabaseManager()
+
+            # Get LLM clients from processor if available
+            ollama = self.processor.ollama if self.processor and hasattr(self.processor, 'ollama') else None
+            claude = self.processor.claude if self.processor and hasattr(self.processor, 'claude') else None
+
+            if not ollama:
+                # Try to create a minimal ollama client
+                try:
+                    from ollama_client import OllamaClient
+                    ollama = OllamaClient()
+                except Exception:
+                    logger.warning("[ACTION_REGISTRY] No Ollama client available")
+
+            self._session_state = SessionState(db)
+            self._extractor = ActionExtractor(ollama, claude) if ollama else None
+            self._validator = ActionValidator(db)
+            self._context_mgr = ContextManager(self._session_state)
+            self._notifier = NotificationRouter(self.telegram)
+            self._update_stream = UpdateStream(self.telegram)
+
+            self._registry_initialized = True
+            logger.info("[ACTION_REGISTRY] Initialized successfully")
+        except Exception as e:
+            logger.error("[ACTION_REGISTRY] Failed to initialize: %s", e, exc_info=True)
+            self._action_registry_enabled = False
+
     # ==================
     # CORE METHODS
     # ==================
@@ -114,6 +179,17 @@ class ConversationManager:
         # Cleanup expired contexts periodically
         if time.time() - self._last_cleanup > 600:  # Every 10 minutes
             self.clear_expired_contexts()
+
+        # --- Action Registry: check AWAITING state first ---
+        if self._action_registry_enabled:
+            self._init_action_registry()
+            if self._session_state:
+                awaiting = self._session_state.get_awaiting(user_id)
+                if awaiting:
+                    logger.info("[ACTION_REGISTRY] User %d is awaiting: %s", user_id, awaiting['type'])
+                    result = await self._handle_awaiting_response(user_id, text, chat_id, awaiting)
+                    if result:
+                        return result
 
         # Check if it's legacy email format (backward compatibility)
         if self._is_legacy_email_format(text):
@@ -153,7 +229,15 @@ class ConversationManager:
         intent = self.classify_intent(text, context)
         logger.info(f"Classified intent: {intent.value} for message: {text[:50]}")
 
-        # Route based on intent
+        # --- Action Registry: try registry flow for supported intents ---
+        if self._action_registry_enabled and self._registry_initialized:
+            registry_result = await self._try_action_registry(
+                intent, text, user_id, chat_id
+            )
+            if registry_result is not None:
+                return registry_result
+
+        # Route based on intent (legacy flow)
         try:
             result = await self.route_to_capability(intent, text, user_id, chat_id)
             return result
@@ -2038,6 +2122,576 @@ Just ask naturally and I'll figure out what you need!"""
             'priority': priority,
             'deadline': deadline
         }
+
+    # ==========================================================================
+    # ACTION REGISTRY INTEGRATION
+    # ==========================================================================
+
+    async def _try_action_registry(
+        self, intent: Intent, text: str, user_id: int, chat_id: int
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Attempt to handle the intent through the Action Registry system.
+
+        Returns a routing result dict if handled, or None to fall through
+        to the legacy routing flow.
+        """
+        from core.actions import get_action_schema, get_action_name
+
+        # Skip conversational intents — they don't need the registry
+        skip_intents = {Intent.GREETING, Intent.HELP_REQUEST, Intent.CASUAL_CHAT,
+                        Intent.UNCLEAR, Intent.COMMAND}
+        if intent in skip_intents:
+            return None
+
+        # Map the existing Intent enum to the registry's intent strings
+        intent_value = self._map_intent_to_registry(intent)
+        if intent_value is None:
+            return None
+
+        action_schema = get_action_schema(intent_value)
+        if action_schema is None:
+            return None
+
+        action_name = get_action_name(intent_value)
+        if action_name is None:
+            return None
+
+        logger.info("[ACTION_REGISTRY] Processing action: %s", action_name)
+
+        # Build context
+        action_context = self._build_action_context(user_id, action_schema)
+
+        # Extract parameters
+        if self._extractor:
+            params, missing, confidence, reasoning = self._extractor.extract_params(
+                action_name=action_name,
+                user_text=text,
+                context=action_context,
+            )
+        else:
+            params, missing, confidence, reasoning = {}, list(action_schema.required_params), 0.0, "No extractor"
+
+        # Inject context if user said "it", "that", etc.
+        if self._context_mgr:
+            params = self._context_mgr.inject_context_if_needed(user_id, text, params)
+
+        logger.info(
+            "[ACTION_REGISTRY] Extraction: params=%s, missing=%s, conf=%.2f, reason=%s",
+            params, missing, confidence, reasoning,
+        )
+
+        # Validate
+        if self._validator:
+            validation = self._validator.validate(
+                action_name=action_name,
+                params=params,
+                missing_fields=missing,
+                confidence=confidence,
+                context=action_context,
+            )
+        else:
+            # If no validator, fall through to legacy flow
+            return None
+
+        if not validation.can_execute:
+            # Store pending action and wait for user response
+            if self._session_state:
+                self._session_state.set_awaiting(
+                    user_id=user_id,
+                    awaiting_type=validation.clarification_type,
+                    pending_action=intent_value,
+                    context_data={
+                        "params": params,
+                        "context": action_context,
+                        "original_text": text,
+                        "options": validation.options,
+                        "chat_id": chat_id,
+                    },
+                )
+
+            await self.telegram.send_response(chat_id, validation.clarification_needed)
+            return {
+                'handled': True,
+                'routed_to': 'action_registry',
+                'action': action_name,
+                'awaiting': validation.clarification_type,
+            }
+
+        # Execute action — delegate to existing capability handlers
+        # The registry validates and extracts params; execution still uses
+        # the existing, proven handlers.
+        exec_result = await self._execute_registry_action(
+            intent, action_name, params, action_context, user_id, chat_id
+        )
+
+        # Update context for future "it" references
+        if self._context_mgr and exec_result:
+            self._context_mgr.update_context_after_action(
+                user_id, action_name, params, exec_result
+            )
+
+        # Multi-channel output
+        if action_schema.multi_channel_output and self._notifier:
+            try:
+                await self._notifier.route_notification(
+                    user_id, action_name, params, exec_result, multi_channel=True
+                )
+            except Exception as e:
+                logger.warning("[ACTION_REGISTRY] Multi-channel notification failed: %s", e)
+
+        return exec_result
+
+    def _map_intent_to_registry(self, intent: Intent) -> Optional[str]:
+        """Map the existing Intent enum to Action Registry intent strings."""
+        mapping = {
+            Intent.TODO_ADD: "TODO_ADD",
+            Intent.TODO_COMPLETE: "TODO_COMPLETE",
+            Intent.TODO_DELETE: "TODO_DELETE",
+            Intent.TODO_LIST: "TODO_LIST",
+            Intent.EMAIL_DRAFT: "EMAIL_DRAFT",
+            Intent.EMAIL_SEARCH: "EMAIL_SEARCH",
+            Intent.EMAIL_SYNTHESIZE: "EMAIL_SYNTHESIZE",
+            Intent.INFO_STATUS: "INFO_STATUS",
+            Intent.INFO_UNREAD: "EMAIL_UNREAD",
+            Intent.INFO_DIGEST: "DIGEST_GENERATE",
+            Intent.SKILL_FINALIZE: "SKILL_FINALIZE",
+            Intent.SKILL_LIST: "SKILL_LIST",
+            Intent.SKILL_SEARCH: "SKILL_SEARCH",
+        }
+        return mapping.get(intent)
+
+    def _build_action_context(
+        self, user_id: int, action_schema
+    ) -> Dict[str, Any]:
+        """
+        Build context dict based on action's context_needed.
+        Fetches data from managers and session state.
+        """
+        context: Dict[str, Any] = {}
+
+        for ctx_key in action_schema.context_needed:
+            try:
+                if ctx_key == "active_tasks":
+                    from todo_manager import TodoManager
+                    todo_mgr = TodoManager()
+                    pending = todo_mgr.get_pending_tasks(limit=15)
+                    context["active_tasks"] = [
+                        {"id": t["id"], "title": t["title"],
+                         "priority": t.get("priority", "medium"),
+                         "category": t.get("category", "")}
+                        for t in pending
+                    ] if pending else []
+
+                elif ctx_key == "recent_emails":
+                    cached = self._session_state.get_reference(user_id, "search_results") if self._session_state else None
+                    context["recent_emails"] = cached or []
+
+                elif ctx_key == "existing_skills":
+                    try:
+                        from skill_manager import SkillManager
+                        sm = SkillManager()
+                        context["existing_skills"] = sm.list_skills(user_id=user_id, limit=10)
+                    except Exception:
+                        context["existing_skills"] = []
+
+                elif ctx_key == "pending_skills":
+                    try:
+                        from skill_manager import SkillManager
+                        sm = SkillManager()
+                        # Filter for pending status if method supports it
+                        all_skills = sm.list_skills(user_id=user_id, limit=10)
+                        context["pending_skills"] = [
+                            s for s in all_skills if s.get("status") == "Pending"
+                        ]
+                    except Exception:
+                        context["pending_skills"] = []
+
+                elif ctx_key == "active_drafts":
+                    context["active_drafts"] = []
+
+                elif ctx_key == "system_health":
+                    context["system_health"] = {"status": "operational"}
+
+                elif ctx_key == "persona_config":
+                    context["persona_config"] = {}
+
+                elif ctx_key in ("writing_patterns", "last_search_results",
+                                 "recent_brainstorms", "thread_history",
+                                 "recent_threads", "unsent_drafts", "pending_tasks",
+                                 "existing_categories", "recent_tasks",
+                                 "connected_sheets", "recent_context",
+                                 "workflow_state", "active_resources",
+                                 "recent_generations"):
+                    context[ctx_key] = []
+
+            except Exception as e:
+                logger.warning("[ACTION_REGISTRY] Failed to build context for '%s': %s", ctx_key, e)
+                context[ctx_key] = []
+
+        return context
+
+    async def _execute_registry_action(
+        self,
+        intent: Intent,
+        action_name: str,
+        params: Dict[str, Any],
+        context: Dict[str, Any],
+        user_id: int,
+        chat_id: int,
+    ) -> Dict[str, Any]:
+        """
+        Execute a validated action by delegating to existing capability handlers.
+
+        The Action Registry handles extraction and validation; this method
+        bridges to the proven execution logic already in the codebase.
+        """
+        logger.info("[ACTION_REGISTRY] Executing: %s with params: %s", action_name, params)
+
+        try:
+            if intent == Intent.TODO_ADD:
+                return await self._handle_todo_add(
+                    params.get("title", ""), chat_id
+                )
+
+            elif intent == Intent.TODO_LIST:
+                return await self._handle_todo_list(chat_id, user_id)
+
+            elif intent == Intent.TODO_COMPLETE:
+                return await self._registry_todo_complete(params, context, chat_id)
+
+            elif intent == Intent.TODO_DELETE:
+                return await self._registry_todo_delete(params, context, chat_id)
+
+            elif intent in (Intent.EMAIL_DRAFT, Intent.EMAIL_SEARCH):
+                return {
+                    'handled': False,
+                    'routed_to': 'email_processor',
+                    'reason': intent.value,
+                    'params': params,
+                }
+
+            elif intent == Intent.EMAIL_SYNTHESIZE:
+                return {
+                    'handled': False,
+                    'routed_to': 'email_processor',
+                    'reason': 'synthesize',
+                    'params': params,
+                }
+
+            elif intent == Intent.INFO_STATUS:
+                return await self._handle_status(chat_id)
+
+            elif intent == Intent.INFO_UNREAD:
+                return await self._handle_unread(chat_id)
+
+            elif intent == Intent.INFO_DIGEST:
+                return await self._handle_digest(chat_id)
+
+            elif intent == Intent.SKILL_FINALIZE:
+                return await self._handle_skill_finalize(
+                    params.get("_original_text", "finalize"), user_id, chat_id
+                )
+
+            elif intent == Intent.SKILL_LIST:
+                return await self._handle_skill_list(user_id, chat_id)
+
+            elif intent == Intent.SKILL_SEARCH:
+                query = params.get("query", "")
+                return await self._handle_skill_search(
+                    f"find skill about {query}", user_id, chat_id
+                )
+
+            # Fallback: route normally
+            return await self.route_to_capability(intent, params.get("_original_text", ""), user_id, chat_id)
+
+        except Exception as e:
+            logger.error("[ACTION_REGISTRY] Execution error: %s", e, exc_info=True)
+            await self.telegram.send_response(
+                chat_id, f"Sorry, something went wrong: {e}"
+            )
+            return {'handled': True, 'routed_to': 'action_registry', 'error': str(e)}
+
+    async def _registry_todo_complete(
+        self, params: Dict[str, Any], context: Dict[str, Any], chat_id: int
+    ) -> Dict[str, Any]:
+        """Complete a task using the registry-extracted task_id."""
+        try:
+            from todo_manager import TodoManager
+            from db_manager import DatabaseManager
+
+            task_id = params.get("task_id")
+            if not task_id:
+                await self.telegram.send_response(chat_id, "Could not determine which task to complete.")
+                return {'handled': True, 'routed_to': 'action_registry', 'error': 'no_task_id'}
+
+            todo_mgr = TodoManager()
+            db = DatabaseManager()
+
+            # Find task title from context or DB
+            active_tasks = context.get("active_tasks", [])
+            task = next((t for t in active_tasks if t.get("id") == task_id), None)
+            task_title = task["title"] if task else f"task #{task_id}"
+
+            # Complete the task
+            with db.get_connection() as conn:
+                conn.execute(
+                    "UPDATE tasks SET status = 'completed', completed_at = CURRENT_TIMESTAMP WHERE id = ?",
+                    (task_id,)
+                )
+                conn.commit()
+
+            response = f"Task '{task_title}' marked complete and archived!"
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'action_registry', 'action': 'todo_complete'}
+
+        except Exception as e:
+            logger.error("[ACTION_REGISTRY] todo_complete error: %s", e, exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error completing task: {e}")
+            return {'handled': True, 'routed_to': 'action_registry', 'error': str(e)}
+
+    async def _registry_todo_delete(
+        self, params: Dict[str, Any], context: Dict[str, Any], chat_id: int
+    ) -> Dict[str, Any]:
+        """Delete a task using the registry-extracted task_id."""
+        try:
+            from db_manager import DatabaseManager
+
+            task_id = params.get("task_id")
+            if not task_id:
+                await self.telegram.send_response(chat_id, "Could not determine which task to delete.")
+                return {'handled': True, 'routed_to': 'action_registry', 'error': 'no_task_id'}
+
+            active_tasks = context.get("active_tasks", [])
+            task = next((t for t in active_tasks if t.get("id") == task_id), None)
+            task_title = task["title"] if task else f"task #{task_id}"
+
+            db = DatabaseManager()
+            with db.get_connection() as conn:
+                conn.execute("DELETE FROM tasks WHERE id = ?", (task_id,))
+                conn.commit()
+
+            response = f"Task '{task_title}' permanently deleted."
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'action_registry', 'action': 'todo_delete'}
+
+        except Exception as e:
+            logger.error("[ACTION_REGISTRY] todo_delete error: %s", e, exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error deleting task: {e}")
+            return {'handled': True, 'routed_to': 'action_registry', 'error': str(e)}
+
+    # -------------------------------------------------------------------------
+    # Awaiting-state handler
+    # -------------------------------------------------------------------------
+
+    async def _handle_awaiting_response(
+        self, user_id: int, text: str, chat_id: int, awaiting_state: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Handle user's response to a clarification question.
+        Implements Session Memory for multi-turn interactions.
+        """
+        awaiting_type = awaiting_state["type"]
+        pending_action = awaiting_state["action"]
+        stored_context = awaiting_state["context"]
+        stored_chat_id = stored_context.get("chat_id", chat_id)
+
+        logger.info(
+            "[ACTION_REGISTRY] Handling awaiting response: type=%s, action=%s",
+            awaiting_type, pending_action,
+        )
+
+        if awaiting_type == "missing_params":
+            return await self._resolve_missing_param(
+                user_id, text, stored_chat_id, pending_action, stored_context
+            )
+
+        if awaiting_type in ("low_confidence", "high_risk"):
+            return await self._resolve_confirmation(
+                user_id, text, stored_chat_id, pending_action, stored_context
+            )
+
+        if awaiting_type == "ambiguous":
+            return await self._resolve_ambiguity(
+                user_id, text, stored_chat_id, pending_action, stored_context
+            )
+
+        # Unknown awaiting type — clear and let normal flow handle it
+        self._session_state.clear_awaiting(user_id)
+        return None
+
+    async def _resolve_confirmation(
+        self, user_id: int, text: str, chat_id: int,
+        pending_action: str, stored_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle yes/no confirmation for low-confidence or high-risk actions."""
+        confirmation_words = {"yes", "confirm", "do it", "go ahead", "sure", "yeah", "yep", "ok", "okay", "y"}
+        rejection_words = {"no", "cancel", "stop", "nevermind", "nope", "don't", "n"}
+
+        text_lower = text.lower().strip()
+
+        if text_lower in confirmation_words or any(w in text_lower for w in confirmation_words):
+            self._session_state.clear_awaiting(user_id)
+
+            # Map back to Intent and execute
+            intent = self._registry_intent_to_enum(pending_action)
+            if intent:
+                from core.actions import get_action_name
+                action_name = get_action_name(pending_action)
+                return await self._execute_registry_action(
+                    intent, action_name, stored_context.get("params", {}),
+                    stored_context.get("context", {}), user_id, chat_id
+                )
+
+        if text_lower in rejection_words or any(w in text_lower for w in rejection_words):
+            self._session_state.clear_awaiting(user_id)
+            await self.telegram.send_response(chat_id, "Okay, action canceled. What would you like to do instead?")
+            return {'handled': True, 'routed_to': 'action_registry', 'action': 'canceled'}
+
+        await self.telegram.send_response(chat_id, "I didn't catch that. Reply 'yes' to confirm or 'no' to cancel.")
+        return {'handled': True, 'routed_to': 'action_registry', 'awaiting': 'confirmation'}
+
+    async def _resolve_missing_param(
+        self, user_id: int, text: str, chat_id: int,
+        pending_action: str, stored_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Extract missing parameter from user's follow-up message."""
+        from core.actions import get_action_schema, get_action_name
+
+        action_schema = get_action_schema(pending_action)
+        if not action_schema:
+            self._session_state.clear_awaiting(user_id)
+            return {'handled': True, 'routed_to': 'action_registry', 'error': 'unknown_action'}
+
+        action_name = get_action_name(pending_action)
+
+        # Re-run extraction with user's clarification
+        if self._extractor:
+            params, missing, confidence, reasoning = self._extractor.extract_params(
+                action_name=action_name,
+                user_text=text,
+                context=stored_context.get("context", {}),
+            )
+        else:
+            params, missing = {}, list(action_schema.required_params)
+            confidence, reasoning = 0.0, "No extractor"
+
+        # Merge with previously extracted params
+        final_params = {**stored_context.get("params", {}), **params}
+
+        # Re-check missing fields
+        still_missing = [
+            p for p in action_schema.required_params
+            if p not in final_params or final_params[p] is None
+        ]
+
+        if still_missing:
+            # Still need more info — update stored params and re-ask
+            stored_context["params"] = final_params
+            if self._validator:
+                validation = self._validator.validate(
+                    action_name=action_name,
+                    params=final_params,
+                    missing_fields=still_missing,
+                    confidence=confidence,
+                    context=stored_context.get("context", {}),
+                )
+                if not validation.can_execute:
+                    self._session_state.set_awaiting(
+                        user_id=user_id,
+                        awaiting_type="missing_params",
+                        pending_action=pending_action,
+                        context_data=stored_context,
+                    )
+                    await self.telegram.send_response(chat_id, validation.clarification_needed)
+                    return {'handled': True, 'routed_to': 'action_registry', 'awaiting': 'missing_params'}
+
+        # All required params now present
+        self._session_state.clear_awaiting(user_id)
+        intent = self._registry_intent_to_enum(pending_action)
+        if intent:
+            return await self._execute_registry_action(
+                intent, action_name, final_params,
+                stored_context.get("context", {}), user_id, chat_id
+            )
+
+        return {'handled': True, 'routed_to': 'action_registry', 'error': 'unmapped_intent'}
+
+    async def _resolve_ambiguity(
+        self, user_id: int, text: str, chat_id: int,
+        pending_action: str, stored_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle user's selection from multiple ambiguous options."""
+        import re as _re
+
+        options = stored_context.get("options", [])
+        if not options:
+            self._session_state.clear_awaiting(user_id)
+            return {'handled': True, 'routed_to': 'action_registry', 'error': 'no_options'}
+
+        # Try to extract selection number
+        match = _re.search(r'\b(\d+)\b', text)
+        if match:
+            selection_num = int(match.group(1))
+            if 1 <= selection_num <= len(options):
+                selected_option = options[selection_num - 1]
+                final_params = {**stored_context.get("params", {}), **selected_option}
+
+                self._session_state.clear_awaiting(user_id)
+                intent = self._registry_intent_to_enum(pending_action)
+                if intent:
+                    from core.actions import get_action_name
+                    action_name = get_action_name(pending_action)
+                    return await self._execute_registry_action(
+                        intent, action_name, final_params,
+                        stored_context.get("context", {}), user_id, chat_id
+                    )
+
+        # Try fuzzy matching on option descriptions
+        text_lower = text.lower()
+        for i, option in enumerate(options):
+            if any(str(v).lower() in text_lower for v in option.values()):
+                final_params = {**stored_context.get("params", {}), **option}
+                self._session_state.clear_awaiting(user_id)
+                intent = self._registry_intent_to_enum(pending_action)
+                if intent:
+                    from core.actions import get_action_name
+                    action_name = get_action_name(pending_action)
+                    return await self._execute_registry_action(
+                        intent, action_name, final_params,
+                        stored_context.get("context", {}), user_id, chat_id
+                    )
+
+        await self.telegram.send_response(
+            chat_id,
+            f"I didn't catch that. Please say the number of your choice (1-{len(options)})."
+        )
+        return {'handled': True, 'routed_to': 'action_registry', 'awaiting': 'ambiguous'}
+
+    def _registry_intent_to_enum(self, intent_value: str) -> Optional[Intent]:
+        """Map an action registry intent string back to an Intent enum member."""
+        reverse_mapping = {
+            "TODO_ADD": Intent.TODO_ADD,
+            "TODO_COMPLETE": Intent.TODO_COMPLETE,
+            "TODO_DELETE": Intent.TODO_DELETE,
+            "TODO_LIST": Intent.TODO_LIST,
+            "EMAIL_DRAFT": Intent.EMAIL_DRAFT,
+            "EMAIL_SEARCH": Intent.EMAIL_SEARCH,
+            "EMAIL_SEND": Intent.EMAIL_FORWARD,  # closest match
+            "EMAIL_SYNTHESIZE": Intent.EMAIL_SYNTHESIZE,
+            "INFO_STATUS": Intent.INFO_STATUS,
+            "EMAIL_UNREAD": Intent.INFO_UNREAD,
+            "DIGEST_GENERATE": Intent.INFO_DIGEST,
+            "SKILL_FINALIZE": Intent.SKILL_FINALIZE,
+            "SKILL_LIST": Intent.SKILL_LIST,
+            "SKILL_SEARCH": Intent.SKILL_SEARCH,
+            "SKILL_CREATE": Intent.SKILL_QUICK,
+        }
+        return reverse_mapping.get(intent_value)
+
+    # ==================
+    # LEGACY METHODS (unchanged)
+    # ==================
 
     def _is_legacy_email_format(self, text: str) -> bool:
         """
