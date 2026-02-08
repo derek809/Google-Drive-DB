@@ -486,6 +486,75 @@ class GoogleSheetsClient:
             }
 
     # ==================
+    # SPREADSHEET CREATION
+    # ==================
+
+    def create_spreadsheet(
+        self,
+        title: str,
+        sheet_data: Optional[List[List[Any]]] = None,
+        sheet_name: str = "Sheet1"
+    ) -> Dict[str, Any]:
+        """
+        Create a new Google Spreadsheet with optional initial data.
+
+        Args:
+            title: Title for the new spreadsheet
+            sheet_data: Optional 2D array of initial data (first row = headers)
+            sheet_name: Name for the first sheet tab
+
+        Returns:
+            Dict with spreadsheet_id, url, and success status
+        """
+        self._ensure_connected()
+
+        try:
+            body = {
+                "properties": {"title": title},
+                "sheets": [
+                    {
+                        "properties": {
+                            "title": sheet_name,
+                            "gridProperties": {
+                                "rowCount": max(100, len(sheet_data) + 10) if sheet_data else 100,
+                                "columnCount": max(26, len(sheet_data[0]) + 2) if sheet_data and sheet_data[0] else 26,
+                            },
+                        }
+                    }
+                ],
+            }
+
+            result = self.service.spreadsheets().create(body=body).execute()
+            spreadsheet_id = result.get("spreadsheetId")
+            url = f"https://docs.google.com/spreadsheets/d/{spreadsheet_id}"
+
+            # Write initial data if provided
+            if sheet_data and spreadsheet_id:
+                self.write_range(
+                    spreadsheet_id,
+                    f"{sheet_name}!A1",
+                    sheet_data,
+                )
+
+            return {
+                "success": True,
+                "spreadsheet_id": spreadsheet_id,
+                "url": url,
+                "title": title,
+                "sheet_name": sheet_name,
+                "rows_written": len(sheet_data) if sheet_data else 0,
+            }
+
+        except HttpError as e:
+            return self._handle_http_error(e, "create_spreadsheet")
+        except Exception as e:
+            return {
+                "success": False,
+                "error": str(e),
+                "error_type": type(e).__name__,
+            }
+
+    # ==================
     # ERROR HANDLING
     # ==================
 

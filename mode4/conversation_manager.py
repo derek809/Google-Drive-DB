@@ -115,6 +115,21 @@ class ConversationManager:
         self._update_stream = None
         self._confidence_gate_threshold = 0.65
 
+        # --- Intent Classifier (decision tree) ---
+        self._intent_classifier = None
+        try:
+            from core.intent_tree import IntentClassifier
+            self._intent_classifier = IntentClassifier()
+            logger.info("[INTENT_TREE] IntentClassifier loaded")
+        except Exception as e:
+            logger.warning("[INTENT_TREE] Could not load IntentClassifier: %s", e)
+
+        # --- Ambiguity Resolver ---
+        self._ambiguity_resolver = None
+
+        # --- Conversation State Machine ---
+        self._conv_state_machine = None
+
     # ==================
     # ACTION REGISTRY BOOTSTRAP
     # ==================
@@ -153,6 +168,22 @@ class ConversationManager:
             self._context_mgr = ContextManager(self._session_state)
             self._notifier = NotificationRouter(self.telegram)
             self._update_stream = UpdateStream(self.telegram)
+
+            # Initialize ambiguity resolver
+            try:
+                from core.ambiguity_resolver import AmbiguityResolver
+                self._ambiguity_resolver = AmbiguityResolver(self._session_state)
+                logger.info("[ACTION_REGISTRY] AmbiguityResolver initialized")
+            except Exception as e:
+                logger.warning("[ACTION_REGISTRY] AmbiguityResolver unavailable: %s", e)
+
+            # Initialize conversation state machine
+            try:
+                from core.conversation_state import ConversationStateMachine
+                self._conv_state_machine = ConversationStateMachine(db)
+                logger.info("[ACTION_REGISTRY] ConversationStateMachine initialized")
+            except Exception as e:
+                logger.warning("[ACTION_REGISTRY] ConversationStateMachine unavailable: %s", e)
 
             self._registry_initialized = True
             logger.info("[ACTION_REGISTRY] Initialized successfully")
@@ -1113,6 +1144,37 @@ Just ask naturally and I'll figure out what you need!"""
             return {'handled': True, 'routed_to': 'email_reference'}
 
         elif any(word in text_lower for word in ['forward', 'send to']):
+            # Check if recipient is already in the text (e.g. "forward #1 to sarah@example.com")
+            import re as _fwd_re
+            to_match = _fwd_re.search(r'(?:to|for)\s+([\w.+-]+@[\w.-]+\.\w+)', text, _fwd_re.IGNORECASE)
+            if to_match:
+                # Forward immediately
+                to_addr = to_match.group(1)
+                try:
+                    gmail = self.processor.gmail if self.processor and hasattr(self.processor, 'gmail') else None
+                    if gmail and email_id:
+                        result = gmail.forward_email(email_id, to_addr)
+                        if result.get('success'):
+                            await self.telegram.send_response(
+                                chat_id,
+                                f"Forwarded '{subject}' to {to_addr}\nMessage ID: {result.get('message_id', 'N/A')}"
+                            )
+                            return {'handled': True, 'routed_to': 'email_reference', 'forwarded': True}
+                        else:
+                            await self.telegram.send_response(
+                                chat_id,
+                                f"Failed to forward: {result.get('error', 'Unknown error')}"
+                            )
+                            return {'handled': True, 'routed_to': 'email_reference', 'error': 'forward_failed'}
+                    else:
+                        await self.telegram.send_response(chat_id, "Gmail client not available for forwarding.")
+                        return {'handled': True, 'routed_to': 'email_reference', 'error': 'no_gmail'}
+                except Exception as e:
+                    logger.error(f"Forward error: {e}")
+                    await self.telegram.send_response(chat_id, f"Forward failed: {e}")
+                    return {'handled': True, 'routed_to': 'email_reference', 'error': str(e)}
+
+            # No recipient found — ask for it
             await self.telegram.send_response(
                 chat_id,
                 f"Who should I forward '{subject}' to?"
@@ -1874,32 +1936,49 @@ Just ask naturally and I'll figure out what you need!"""
                     logger.warning(f"Gemini extraction failed: {e}, using empty sheet")
 
             # Create the sheet using Google Sheets API
+            import sys
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from sheets_client import GoogleSheetsClient
-
-            # Create new spreadsheet
-            # Note: This requires proper Google Cloud project setup
-            # For now, we'll simulate the creation
 
             sheet_title = self._generate_sheet_title(step, context)
 
-            # TODO: Actual sheet creation with sheets_client
-            # For now, return simulated result
-
+            # Attempt real sheet creation via Sheets API
             sheet_info = {
                 'title': sheet_title,
                 'columns': columns,
                 'rows': len(sheet_data) - 1,
-                'url': f'https://docs.google.com/spreadsheets/d/SIMULATED_ID',
-                'created': True
+                'url': '',
+                'created': False
             }
 
+            try:
+                sheets = GoogleSheetsClient()
+                sheets.connect()
+                result = sheets.create_spreadsheet(
+                    title=sheet_title,
+                    sheet_data=sheet_data,
+                    sheet_name="Data"
+                )
+                if result.get('success'):
+                    sheet_info['url'] = result['url']
+                    sheet_info['sheet_id'] = result['spreadsheet_id']
+                    sheet_info['created'] = True
+                    logger.info(f"Created real Google Sheet: {result['url']}")
+                else:
+                    logger.warning(f"Sheet creation failed: {result.get('error')}")
+                    sheet_info['url'] = f"(creation failed: {result.get('error', 'unknown')})"
+            except Exception as e:
+                logger.warning(f"Could not create Google Sheet: {e}")
+                sheet_info['url'] = "(Google Sheets API not configured)"
+
             # Send result to user
-            msg = f"✅ <b>Created Google Sheet</b>\n\n"
-            msg += f"📊 <b>Title:</b> {html.escape(sheet_title)}\n"
-            msg += f"📋 <b>Columns:</b> {html.escape(', '.join(columns))}\n"
-            msg += f"📝 <b>Rows:</b> {sheet_info['rows']}\n"
-            msg += f"🔗 <b>Link:</b> {sheet_info['url']}\n\n"
-            msg += f"<i>Note: Full Google Sheets API integration in progress</i>"
+            msg = f"<b>Created Google Sheet</b>\n\n"
+            msg += f"<b>Title:</b> {html.escape(sheet_title)}\n"
+            msg += f"<b>Columns:</b> {html.escape(', '.join(columns))}\n"
+            msg += f"<b>Rows:</b> {sheet_info['rows']}\n"
+            msg += f"<b>Link:</b> {sheet_info['url']}\n"
+            if not sheet_info['created']:
+                msg += f"\n<i>Note: Configure Google Sheets API credentials for live creation</i>"
 
             await self.telegram.send_response(chat_id, msg)
 

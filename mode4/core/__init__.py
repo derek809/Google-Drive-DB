@@ -19,6 +19,15 @@ from core.session_state import SessionState
 from core.context_manager import ContextManager
 from core.notification_router import NotificationRouter
 from core.update_stream import UpdateStream
+from core.intent_tree import IntentClassifier, IntentResult, DecisionNode
+from core.ambiguity_resolver import AmbiguityResolver, DisambiguationResult
+from core.conversation_state import ConversationStateMachine, ConversationState
+from core.observability import (
+    StructuredLogger,
+    PerformanceTracker,
+    HealthChecker,
+    CircuitBreaker,
+)
 
 __all__ = [
     "ACTIONS",
@@ -33,4 +42,15 @@ __all__ = [
     "ContextManager",
     "NotificationRouter",
     "UpdateStream",
+    "IntentClassifier",
+    "IntentResult",
+    "DecisionNode",
+    "AmbiguityResolver",
+    "DisambiguationResult",
+    "ConversationStateMachine",
+    "ConversationState",
+    "StructuredLogger",
+    "PerformanceTracker",
+    "HealthChecker",
+    "CircuitBreaker",
 ]

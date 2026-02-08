@@ -11,3 +11,9 @@ google-api-python-client>=2.0
 
 # Ollama (local LLM)
 ollama>=0.1.0
+
+# Environment variables
+python-dotenv>=1.0
+
+# Fuzzy matching for ambiguity resolution (optional but recommended)
+rapidfuzz>=3.0

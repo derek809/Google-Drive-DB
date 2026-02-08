@@ -202,7 +202,8 @@ PROACTIVE_MORNING_DIGEST_HOUR = 7
 
 # Master Doc ID for storing finalized skills/ideas
 # URL format: https://docs.google.com/document/d/DOCUMENT_ID/edit
-MASTER_DOC_ID = os.getenv('Docs_ID', os.getenv('MASTER_DOC_ID', ''))
+# Supports both env var names for backward compatibility
+MASTER_DOC_ID = os.getenv('MASTER_DOC_ID') or os.getenv('Docs_ID', '')
 
 # Google Docs API scopes
 GOOGLE_DOCS_SCOPES = ['https://www.googleapis.com/auth/documents']
@@ -264,22 +265,45 @@ def load_telegram_config():
 
 
 def validate_config():
-    """Validate configuration is properly set up."""
+    """
+    Validate configuration is properly set up.
+
+    Returns list of error strings. Empty list = all good.
+    Checks env vars, credential files, and API keys.
+    """
     errors = []
 
-    if SPREADSHEET_ID == "YOUR_SPREADSHEET_ID_HERE":
-        errors.append("SPREADSHEET_ID not configured")
-
-    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE":
-        errors.append("TELEGRAM_BOT_TOKEN not configured")
+    # Critical: Telegram bot
+    if TELEGRAM_BOT_TOKEN == "YOUR_BOT_TOKEN_HERE" or not TELEGRAM_BOT_TOKEN:
+        errors.append("TELEGRAM_BOT_TOKEN not configured (set in .env or environment)")
 
     if not TELEGRAM_ALLOWED_USERS:
         errors.append("TELEGRAM_ALLOWED_USERS is empty - bot will respond to no one")
 
+    # Google Sheets
+    if SPREADSHEET_ID == "YOUR_SPREADSHEET_ID_HERE":
+        errors.append("SPREADSHEET_ID not configured (set in .env)")
+
     if not os.path.exists(SHEETS_CREDENTIALS_PATH):
         errors.append(f"Sheets credentials not found: {SHEETS_CREDENTIALS_PATH}")
 
+    # Gmail
     if not os.path.exists(GMAIL_CREDENTIALS_PATH):
         errors.append(f"Gmail credentials not found: {GMAIL_CREDENTIALS_PATH}")
+
+    # Database path
+    db_dir = os.path.dirname(MODE4_DB_PATH)
+    if not os.path.exists(db_dir):
+        try:
+            os.makedirs(db_dir, exist_ok=True)
+        except OSError as e:
+            errors.append(f"Cannot create database directory {db_dir}: {e}")
+
+    # Optional but recommended
+    if not ANTHROPIC_API_KEY:
+        errors.append("ANTHROPIC_API_KEY not set - Claude API unavailable (non-critical)")
+
+    if not GEMINI_API_KEY:
+        errors.append("GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)")
 
     return errors
