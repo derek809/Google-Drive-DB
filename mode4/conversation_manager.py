@@ -234,6 +234,37 @@ class ConversationManager:
         # Get context
         context = self.get_context(user_id)
 
+        # --- Task Completion Detection (before general intent classification) ---
+        # Catches "1 is done", "both done", "all complete", etc.
+        if context and context.get('last_tasks'):
+            completion = self._detect_task_completion(text, context)
+            if completion:
+                # Check TTL - only allow bare-number completion within 5 minutes
+                try:
+                    from m1_config import TASK_COMPLETION_CONTEXT_TTL
+                except (ImportError, AttributeError):
+                    TASK_COMPLETION_CONTEXT_TTL = 300
+                tasks_show_time = context.get('tasks_show_time', 0)
+                tasks_fresh = (time.time() - tasks_show_time) < TASK_COMPLETION_CONTEXT_TTL
+
+                if tasks_fresh:
+                    if completion['type'] == 'single':
+                        return await self._complete_task_by_number(
+                            completion['numbers'][0], context, chat_id, user_id
+                        )
+                    elif completion['type'] == 'all':
+                        return await self._complete_all_tasks(context, chat_id, user_id)
+                    elif completion['type'] == 'multi':
+                        return await self._complete_multiple_tasks(
+                            completion['numbers'], context, chat_id, user_id
+                        )
+                else:
+                    await self.telegram.send_response(
+                        chat_id,
+                        "Your task list has expired. Say 'show my todo' to refresh, then mark items as done."
+                    )
+                    return {'handled': True, 'routed_to': 'task_complete', 'error': 'context_expired'}
+
         # Check if user has an active workflow - handle workflow messages first
         workflow_result = await self._check_active_workflow(text, user_id, chat_id)
         if workflow_result and workflow_result.get('handled'):
@@ -254,7 +285,7 @@ class ConversationManager:
                 return await self._execute_email_reference(ref_num, text, context, chat_id, user_id)
             # Then check for task references (from "show my todo")
             elif context.get('last_tasks'):
-                return await self._execute_task_reference(ref_num, context, chat_id, user_id)
+                return await self._execute_task_reference(ref_num, text, context, chat_id, user_id)
 
         # Classify intent
         intent = self.classify_intent(text, context)
@@ -349,7 +380,8 @@ class ConversationManager:
 
         # Idea bouncing - check BEFORE help requests (since "help me think" contains "help")
         idea_patterns = ['help me think', 'bounce idea', 'feedback on', 'what do you think',
-                        'think through', 'brainstorm', 'explore this idea']
+                        'think through', 'brainstorm', 'explore this idea',
+                        'brianstorm', 'branstorm', 'brain storm', 'brainstrom']
         if any(phrase in text_lower for phrase in idea_patterns):
             return Intent.IDEA_BOUNCE
 
@@ -420,7 +452,7 @@ class ConversationManager:
             return Intent.SKILL_FINALIZE
 
         # Quick skill capture - "Idea: ...", "Note: ...", "Task: ..."
-        if text_lower.startswith(('idea:', 'note:', 'task:', 'brainstorm:')):
+        if text_lower.startswith(('idea:', 'note:', 'task:', 'brainstorm:', 'brianstorm:', 'branstorm:', 'brainstrom:')):
             return Intent.SKILL_QUICK
 
         # Skill listing - "show my skills", "recent ideas", "list skills"
@@ -477,6 +509,7 @@ Classify this message. Return ONLY ONE word from this list:
 - email_draft: explicitly wants to draft/write an email
 - email_search: explicitly wants to find/search emails
 - todo_add: wants to add a task/todo/reminder
+- todo_complete: wants to mark a task as done/complete/finished (e.g. "1 is done", "#2 complete")
 - todo_list: wants to see their tasks
 - digest: wants email summary or morning brief
 - status: wants system status
@@ -950,6 +983,7 @@ Just ask naturally and I'll figure out what you need!"""
 
             # Store references for #N syntax
             self.store_reference(user_id, 'tasks', all_pending)
+            self.update_context(user_id, {'tasks_show_time': time.time()})
 
             await self.telegram.send_response(chat_id, response)
             return {'handled': True, 'routed_to': 'todo_list', 'task_count': len(all_pending)}
@@ -1005,6 +1039,189 @@ Just ask naturally and I'll figure out what you need!"""
         else:
             return "Ready when you are"
 
+    def _detect_task_completion(self, text: str, context: Optional[Dict] = None) -> Optional[Dict]:
+        """
+        Detect if user is marking tasks as complete using natural language.
+
+        Handles:
+          - "1 is done", "1 done", "#1 complete", "task 1 finished"
+          - "done with 1", "finished 1", "mark 1 as done"
+          - "both are done", "all done", "everything complete"
+          - "1 and 2 are done", "1, 2 done"
+
+        Returns:
+            Dict with {'numbers': [int], 'type': 'single'|'all'|'multi'} or None
+        """
+        import re
+        text_lower = text.lower().strip()
+
+        completion = r'(?:done|complete|completed|finished|checked|check off)'
+
+        # Single-task patterns
+        # "1 is done", "1 done", "#1 complete", "#1 is finished"
+        m = re.match(r'^#?(\d+)\s+(?:is\s+)?' + completion + r'$', text_lower)
+        if m:
+            return {'numbers': [int(m.group(1))], 'type': 'single'}
+
+        # "done with 1", "finished 1", "completed 1"
+        m = re.match(r'^(?:done with|finished|completed)\s+#?(\d+)$', text_lower)
+        if m:
+            return {'numbers': [int(m.group(1))], 'type': 'single'}
+
+        # "mark 1 as done", "mark #1 complete"
+        m = re.match(r'^mark\s+#?(\d+)\s+(?:as\s+)?' + completion + r'$', text_lower)
+        if m:
+            return {'numbers': [int(m.group(1))], 'type': 'single'}
+
+        # "task 1 done", "task #1 is complete"
+        m = re.match(r'^task\s+#?(\d+)\s+(?:is\s+)?' + completion + r'$', text_lower)
+        if m:
+            return {'numbers': [int(m.group(1))], 'type': 'single'}
+
+        # Multi-task: "both are done", "all done", "all complete"
+        multi_patterns = [
+            r'^(?:both|all)\s+(?:are\s+)?(?:done|complete|completed|finished)$',
+            r'^(?:done with (?:both|all)|finished (?:both|all|everything))$',
+            r'^(?:all|every\s*one|everything)\s+(?:is\s+)?(?:done|complete|finished)$',
+            r'^(?:they are|they\'re|theyre)\s+(?:all\s+)?(?:done|complete|finished)$',
+            r'^(?:mark all|check all)\s+(?:as\s+)?(?:done|complete)$',
+        ]
+        for pattern in multi_patterns:
+            if re.match(pattern, text_lower):
+                return {'numbers': [], 'type': 'all'}
+
+        # Specific numbers: "1 and 2 are done", "1, 2 done", "#1 and #3 done"
+        if re.search(r'(?:done|complete|finished)', text_lower):
+            nums = re.findall(r'#?(\d+)', text_lower)
+            if len(nums) >= 2:
+                return {'numbers': [int(n) for n in nums], 'type': 'multi'}
+
+        return None
+
+    async def _complete_task_by_number(self, task_num: int, context: Dict,
+                                       chat_id: int, user_id: int,
+                                       silent: bool = False) -> Dict[str, Any]:
+        """Complete a task by its display number from the last shown todo list.
+
+        Args:
+            task_num: Display number from the todo list
+            context: Conversation context with last_tasks
+            chat_id: Chat to send response to
+            user_id: User ID
+            silent: If True, skip sending individual response (used by batch completion)
+        """
+        tasks = context.get('last_tasks', [])
+        task_ref = next((t for t in tasks if t['number'] == task_num), None)
+
+        if not task_ref:
+            if not silent and chat_id:
+                await self.telegram.send_response(
+                    chat_id,
+                    f"Task #{task_num} not found. Say 'show my todo' to refresh the list."
+                )
+            return {'handled': True, 'routed_to': 'task_complete', 'error': 'not_found'}
+
+        origin = task_ref.get('origin', 'sqlite')
+        title = task_ref.get('title', 'Unknown task')
+
+        try:
+            if origin == 'sqlite':
+                from db_manager import DatabaseManager
+                task_id = task_ref.get('task_id')
+                if task_id:
+                    db = DatabaseManager()
+                    with db.get_connection() as conn:
+                        conn.execute(
+                            "UPDATE tasks SET status='completed', completed_at=CURRENT_TIMESTAMP WHERE id=?",
+                            (task_id,)
+                        )
+                        conn.commit()
+
+            elif origin in ('mcp', 'sheets'):
+                import sys
+                sys.path.insert(0, '/Users/work/Telgram bot')
+                from sheets_client import GoogleSheetsClient
+                from m1_config import SPREADSHEET_ID, SHEETS_CREDENTIALS_PATH
+                sheets = None
+                try:
+                    sheets = GoogleSheetsClient(SHEETS_CREDENTIALS_PATH)
+                    sheets.connect()
+                    row_idx = task_ref.get('row_index')
+                    if row_idx:
+                        # MCP tab: status is in column G
+                        sheets.write_range(SPREADSHEET_ID, f'MCP!G{row_idx}', [['done']])
+                finally:
+                    if sheets:
+                        sheets.close()
+
+            if not silent and chat_id:
+                response = f"Done! Completed: {title}"
+                await self.telegram.send_response(chat_id, response)
+            logger.info(f"Task #{task_num} completed: {title} (origin={origin})")
+            return {'handled': True, 'routed_to': 'task_complete', 'task_num': task_num}
+
+        except Exception as e:
+            logger.error(f"Error completing task #{task_num}: {e}", exc_info=True)
+            if not silent and chat_id:
+                await self.telegram.send_response(chat_id, f"Error completing task #{task_num}: {e}")
+            return {'handled': True, 'routed_to': 'task_complete', 'error': str(e)}
+
+    async def _complete_all_tasks(self, context: Dict, chat_id: int,
+                                   user_id: int) -> Dict[str, Any]:
+        """Complete all tasks visible in the last displayed todo list."""
+        tasks = context.get('last_tasks', [])
+        if not tasks:
+            await self.telegram.send_response(
+                chat_id, "No tasks to complete. Say 'show my todo' first."
+            )
+            return {'handled': True, 'routed_to': 'task_complete', 'error': 'no_tasks'}
+
+        completed = []
+        errors = []
+        for task_ref in tasks:
+            try:
+                result = await self._complete_task_by_number(
+                    task_ref['number'], context, chat_id, user_id, silent=True
+                )
+                if not result.get('error'):
+                    completed.append(task_ref['title'])
+                else:
+                    errors.append(f"#{task_ref['number']}: {result['error']}")
+            except Exception as e:
+                errors.append(f"#{task_ref['number']}: {e}")
+
+        response = f"Done! Completed {len(completed)} task(s)."
+        if errors:
+            response += f"\n{len(errors)} error(s) occurred."
+        await self.telegram.send_response(chat_id, response)
+        return {'handled': True, 'routed_to': 'task_complete', 'count': len(completed)}
+
+    async def _complete_multiple_tasks(self, numbers: List[int], context: Dict,
+                                        chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Complete specific tasks by their display numbers."""
+        completed = []
+        errors = []
+        for num in numbers:
+            try:
+                result = await self._complete_task_by_number(
+                    num, context, chat_id, user_id, silent=True
+                )
+                if not result.get('error'):
+                    tasks = context.get('last_tasks', [])
+                    task_ref = next((t for t in tasks if t['number'] == num), None)
+                    if task_ref:
+                        completed.append(task_ref['title'])
+                else:
+                    errors.append(f"#{num}: {result['error']}")
+            except Exception as e:
+                errors.append(f"#{num}: {e}")
+
+        response = f"Done! Completed {len(completed)} task(s)."
+        if errors:
+            response += f"\n{len(errors)} error(s) occurred."
+        await self.telegram.send_response(chat_id, response)
+        return {'handled': True, 'routed_to': 'task_complete', 'count': len(completed)}
+
     def _detect_task_reference(self, text: str, context: Optional[Dict] = None) -> Optional[int]:
         """Detect if user is referencing a task by number (#1, task 2, etc.)."""
         import re
@@ -1031,8 +1248,14 @@ Just ask naturally and I'll figure out what you need!"""
 
         return None
 
-    async def _execute_task_reference(self, task_num: int, context: Dict, chat_id: int, user_id: int) -> Dict[str, Any]:
+    async def _execute_task_reference(self, task_num: int, text: str, context: Dict, chat_id: int, user_id: int) -> Dict[str, Any]:
         """Execute a task by its reference number."""
+        import re as _re_local
+
+        # Safety net: if user says "#1 done", complete instead of executing
+        if _re_local.search(r'\b(done|complete|completed|finished|check off)\b', text.lower()):
+            return await self._complete_task_by_number(task_num, context, chat_id, user_id)
+
         tasks = context.get('last_tasks', [])
 
         # Find the task
@@ -1097,6 +1320,19 @@ Just ask naturally and I'll figure out what you need!"""
         elif 'call' in task_title:
             response = f"✓ Task #{task_num}: {task_ref['title']}\n\nI've noted this. Let me know when it's done so I can mark it complete!"
             await self.telegram.send_response(chat_id, response)
+            # Set awaiting state so "yes"/"done" completes the task
+            if self._session_state:
+                self._session_state.set_awaiting(
+                    user_id=user_id,
+                    awaiting_type='task_followup',
+                    pending_action='task_complete_confirm',
+                    context_data={
+                        'task_num': task_num,
+                        'task_title': task_ref['title'],
+                        'chat_id': chat_id,
+                    },
+                    timeout_minutes=30,
+                )
             return {'handled': True, 'routed_to': 'task_reference'}
 
         else:
@@ -2595,6 +2831,11 @@ Just ask naturally and I'll figure out what you need!"""
                 user_id, text, stored_chat_id, pending_action, stored_context
             )
 
+        if awaiting_type == "task_followup":
+            return await self._resolve_task_followup(
+                user_id, text, stored_chat_id, stored_context
+            )
+
         # Unknown awaiting type — clear and let normal flow handle it
         self._session_state.clear_awaiting(user_id)
         return None
@@ -2695,6 +2936,40 @@ Just ask naturally and I'll figure out what you need!"""
             )
 
         return {'handled': True, 'routed_to': 'action_registry', 'error': 'unmapped_intent'}
+
+    async def _resolve_task_followup(
+        self, user_id: int, text: str, chat_id: int,
+        stored_context: Dict[str, Any]
+    ) -> Optional[Dict[str, Any]]:
+        """Handle user's response to 'Let me know when it's done' after a task reference."""
+        confirmation_words = {
+            "yes", "done", "completed", "finished", "yep", "yeah", "y",
+            "sure", "ok", "okay", "it's done", "its done", "all done"
+        }
+        text_lower = text.lower().strip()
+
+        if text_lower in confirmation_words:
+            self._session_state.clear_awaiting(user_id)
+            task_num = stored_context.get('task_num')
+            context = self.get_context(user_id)
+            if context and task_num:
+                return await self._complete_task_by_number(task_num, context, chat_id, user_id)
+            else:
+                await self.telegram.send_response(
+                    chat_id,
+                    "Task context expired. Say 'show my todo' to refresh your list."
+                )
+                return {'handled': True, 'routed_to': 'task_followup', 'error': 'context_expired'}
+
+        rejection_words = {"no", "cancel", "stop", "nevermind", "nope", "n", "not yet"}
+        if text_lower in rejection_words:
+            self._session_state.clear_awaiting(user_id)
+            await self.telegram.send_response(chat_id, "Okay, task still pending.")
+            return {'handled': True, 'routed_to': 'task_followup', 'action': 'canceled'}
+
+        # Not a confirmation or rejection — clear awaiting and let normal flow handle it
+        self._session_state.clear_awaiting(user_id)
+        return None
 
     async def _resolve_ambiguity(
         self, user_id: int, text: str, chat_id: int,

@@ -4,6 +4,10 @@ Settings for Telegram bot, Gmail, Sheets, and Ollama integration.
 """
 
 import os
+import logging
+
+# Suppress noisy Google API cache warnings
+logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
 # Load environment variables from .env file
 try:
@@ -225,6 +229,10 @@ CONVERSATION_CLARIFICATION_MODE = "smart_assumptions"
 CONVERSATION_TODO_CONFIRM = False
 CONVERSATION_PROACTIVE_SUGGESTIONS = True
 
+# Task completion context TTL - how long after showing todos
+# a bare-number completion like "1 is done" is accepted
+TASK_COMPLETION_CONTEXT_TTL = 300  # 5 minutes
+
 
 # ============================================
 # ACTION REGISTRY SYSTEM
@@ -307,3 +315,15 @@ def validate_config():
         errors.append("GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)")
 
     return errors
+
+    # NVIDIA KIMI K2 API (Smart LLM alternative)
+# ============================================
+
+NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
+# Updated to Kimi 2.5
+KIMI_MODEL = "moonshotai/kimi-k2.5"
+KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
+# Updated parameters from your payload
+KIMI_TEMPERATURE = 1.00
+KIMI_TOP_P = 1.00
+KIMI_MAX_TOKENS = 16384
