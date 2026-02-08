@@ -47,15 +47,51 @@ class SmartParser:
             logger.info("SmartParser initialized in regex-only mode")
 
     def _check_model(self) -> bool:
-        """Check if the configured Ollama model is available."""
+        """
+        Check if the configured Ollama model is available.
+
+        Handles both response formats:
+        - Object with .models attribute (ollama >= 0.2)
+        - Dict with 'models' key (ollama < 0.2 or some versions)
+
+        If the model is missing, logs a warning suggesting to pull it.
+        """
         try:
             result = ollama.list()
-            # ollama.list() returns a ListResponse with models attribute
+            model_names = []
+
+            # Handle object-style response (ListResponse with .models)
             if hasattr(result, 'models'):
-                return any(self.model in m.model for m in result.models)
-            return False
+                try:
+                    model_names = [m.model for m in result.models]
+                except (AttributeError, TypeError):
+                    # .models might be a list of dicts in some versions
+                    model_names = [
+                        m.get('name', '') if isinstance(m, dict) else str(m)
+                        for m in result.models
+                    ]
+
+            # Handle dict-style response
+            elif isinstance(result, dict) and 'models' in result:
+                for m in result['models']:
+                    if isinstance(m, dict):
+                        model_names.append(m.get('name', m.get('model', '')))
+                    else:
+                        model_names.append(str(m))
+
+            found = any(self.model in name for name in model_names)
+            if not found and model_names:
+                logger.warning(
+                    f"Model '{self.model}' not found in Ollama. "
+                    f"Available: {model_names[:5]}. "
+                    f"Run: ollama pull {self.model}"
+                )
+            elif not model_names:
+                logger.warning("No Ollama models found. SmartParser will use regex fallback.")
+
+            return found
         except Exception as e:
-            logger.warning(f"Could not check Ollama models: {e}")
+            logger.warning(f"Could not check Ollama models: {e}. SmartParser will use regex fallback.")
             return False
 
     def parse_with_llm(self, text: str) -> Optional[Dict]:

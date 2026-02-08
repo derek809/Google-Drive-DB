@@ -1,0 +1,70 @@
+name: "Ambiguous task completion"
+description: |
+  Tests that the system correctly handles ambiguous references when
+  multiple tasks exist, triggering clarification instead of guessing.
+
+turns:
+  - user: "Add task: Review Jason invoice"
+    expect_action: TODO_ADD
+    expect_params:
+      title: "Review Jason invoice"
+
+  - user: "Add task: Review Sarah proposal"
+    expect_action: TODO_ADD
+    expect_params:
+      title: "Review Sarah proposal"
+
+  - user: "I finished one"
+    expect_clarification: true
+    expect_options:
+      - "Review Jason invoice"
+      - "Review Sarah proposal"
+
+  - user: "The first one"
+    expect_action: TODO_COMPLETE
+    expect_params:
+      task_id: 1
+
+---
+name: "Email forward with recipient"
+description: |
+  Tests that forwarding an email with a recipient in the same message
+  executes the forward immediately without asking for the recipient.
+
+turns:
+  - user: "Show me my emails"
+    expect_action: EMAIL_INBOX
+
+  - user: "Forward #1 to sarah@example.com"
+    expect_action: EMAIL_FORWARD
+    expect_params:
+      to: "sarah@example.com"
+
+---
+name: "Pronoun resolution - it refers to last email"
+description: |
+  Tests that "it" resolves to the last-mentioned email entity.
+
+turns:
+  - user: "Find the invoice from Jason"
+    expect_action: EMAIL_SEARCH
+
+  - user: "Forward it to Sarah"
+    expect_context_injection: true
+    expect_context_source: "last_email"
+
+---
+name: "Greeting detection"
+description: |
+  Tests that casual greetings do not trigger action processing.
+
+turns:
+  - user: "Hello"
+    expect_category: casual
+    expect_confidence: 1.0
+
+  - user: "How are you?"
+    expect_category: casual
+
+  - user: "Draft email to John about the meeting"
+    expect_category: email_action

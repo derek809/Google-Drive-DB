@@ -451,6 +451,77 @@ class GmailClient:
         )
 
     # ==================
+    # EMAIL FORWARDING
+    # ==================
+
+    def forward_email(
+        self,
+        message_id: str,
+        to_address: str,
+        additional_note: str = ""
+    ) -> Dict[str, Any]:
+        """
+        Forward an email to a new recipient.
+
+        Args:
+            message_id: ID of the message to forward
+            to_address: Recipient email address
+            additional_note: Optional note to prepend to the forwarded body
+
+        Returns:
+            Dict with success status and sent message ID
+        """
+        self._ensure_authenticated()
+
+        try:
+            # Get the original email
+            original = self.get_email(message_id)
+            if not original:
+                return {'success': False, 'error': 'Original message not found'}
+
+            subject = original.get('subject', '(no subject)')
+            if not subject.lower().startswith('fwd:'):
+                subject = f"Fwd: {subject}"
+
+            # Build forwarded body
+            fwd_header = (
+                f"\n\n---------- Forwarded message ----------\n"
+                f"From: {original.get('sender_name', '')} <{original.get('sender_email', '')}>\n"
+                f"Date: {original.get('date', '')}\n"
+                f"Subject: {original.get('subject', '')}\n"
+                f"To: {original.get('to', '')}\n\n"
+            )
+            body = original.get('body', '')
+            full_body = additional_note + fwd_header + body
+
+            # Create and send
+            message = MIMEText(full_body)
+            message['to'] = to_address
+            message['subject'] = subject
+
+            raw_message = base64.urlsafe_b64encode(
+                message.as_bytes()
+            ).decode('utf-8')
+
+            sent = self.service.users().messages().send(
+                userId='me',
+                body={'raw': raw_message}
+            ).execute()
+
+            return {
+                'success': True,
+                'message_id': sent.get('id'),
+                'thread_id': sent.get('threadId'),
+                'to': to_address,
+                'subject': subject,
+            }
+
+        except HttpError as e:
+            return {'success': False, 'error': str(e), 'error_type': 'HttpError'}
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    # ==================
     # LABEL MANAGEMENT
     # ==================
 

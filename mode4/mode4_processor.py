@@ -342,10 +342,15 @@ class Mode4Processor:
                 logger.info("Sent draft request with inline buttons")
             else:
                 # LEGACY FLOW: Automatic triage and generation
-                triage_result = self.ollama.triage(
-                    email,
-                    patterns,
-                    list(self.pattern_matcher.contacts.values())
+                # Wrap blocking Ollama call in executor to prevent heartbeat timeout
+                loop = asyncio.get_event_loop()
+                triage_result = await loop.run_in_executor(
+                    None,
+                    lambda: self.ollama.triage(
+                        email,
+                        patterns,
+                        list(self.pattern_matcher.contacts.values())
+                    )
                 )
 
                 confidence = triage_result.get('confidence', 50)
@@ -444,11 +449,16 @@ class Mode4Processor:
         # Generate draft
         logger.info(f"Generating draft: pattern={pattern_name}, template={template is not None}")
 
-        draft_result = self.ollama.generate_draft(
-            email,
-            instruction,
-            template=template,
-            contact_tone=contact_tone
+        # Wrap blocking Ollama call in executor to prevent heartbeat timeout
+        loop = asyncio.get_event_loop()
+        draft_result = await loop.run_in_executor(
+            None,
+            lambda: self.ollama.generate_draft(
+                email,
+                instruction,
+                template=template,
+                contact_tone=contact_tone
+            )
         )
 
         if not draft_result.get('success'):

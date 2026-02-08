@@ -1,0 +1,95 @@
+{
+  "_comment": "Intent Decision Tree configuration for Mode 4. Edit keywords and thresholds without code changes.",
+
+  "thresholds": {
+    "auto_route": 0.8,
+    "suggest": 0.5,
+    "clarify": 0.0
+  },
+
+  "required_params": {
+    "email_action": [],
+    "sheet_action": [],
+    "workflow_action": [],
+    "casual": [],
+    "clarification_needed": []
+  },
+
+  "tree": {
+    "name": "is_conversational_greeting",
+    "condition_type": "keywords",
+    "condition_data": [
+      "hi", "hello", "hey", "yo", "sup", "hiya", "howdy",
+      "morning", "afternoon", "evening", "good morning",
+      "good afternoon", "good evening", "gm",
+      "whats up", "wassup", "how are you", "hows it going",
+      "thanks", "thank you", "thx", "ty",
+      "bye", "goodbye", "later", "see ya",
+      "cool", "nice", "great", "ok", "okay",
+      "got it", "understood", "makes sense",
+      "lol", "haha", "hehe"
+    ],
+    "true_branch": {
+      "name": "casual_leaf",
+      "action": "casual",
+      "confidence": 1.0
+    },
+    "false_branch": {
+      "name": "contains_email_keywords",
+      "condition_type": "keywords",
+      "condition_data": [
+        "email", "draft", "reply", "forward", "send",
+        "compose", "inbox", "unread", "search email",
+        "mail", "respond", "cc", "bcc", "subject",
+        "find email", "check email", "write email",
+        "check my inbox", "my inbox"
+      ],
+      "true_branch": {
+        "name": "email_action_leaf",
+        "action": "email_action",
+        "confidence": 0.85,
+        "extract_params": [
+          {"pattern": "(?:to|for)\\s+(\\w+)", "param": "recipient"},
+          {"pattern": "(?:about|regarding|re:?)\\s+(.+?)(?:\\s+and\\s+|\\s*$)", "param": "topic"}
+        ]
+      },
+      "false_branch": {
+        "name": "contains_sheet_keywords",
+        "condition_type": "keywords",
+        "condition_data": [
+          "sheet", "spreadsheet", "table", "csv", "excel",
+          "columns", "rows", "tracker",
+          "create a sheet", "make a sheet", "update the sheet",
+          "google sheet"
+        ],
+        "true_branch": {
+          "name": "sheet_action_leaf",
+          "action": "sheet_action",
+          "confidence": 0.85,
+          "extract_params": [
+            {"pattern": "(?:sheet|spreadsheet)\\s+(?:for|about|with)\\s+(.+)", "param": "sheet_topic"}
+          ]
+        },
+        "false_branch": {
+          "name": "contains_multi_step_indicators",
+          "condition_type": "keywords",
+          "condition_data": [
+            "then", "and then", "after that", "next",
+            "first", "finally", "step 1", "step 2"
+          ],
+          "true_branch": {
+            "name": "workflow_action_leaf",
+            "action": "workflow_action",
+            "confidence": 0.75
+          },
+          "false_branch": {
+            "name": "clarification_leaf",
+            "action": "clarification_needed",
+            "confidence": 0.0,
+            "follow_up": "I'm not sure what you'd like me to do. Could you be more specific?"
+          }
+        }
+      }
+    }
+  }
+}
