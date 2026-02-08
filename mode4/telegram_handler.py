@@ -643,11 +643,17 @@ class TelegramHandler:
             return
 
         if action == 'ollama':
-            await self._draft_with_ollama(query, draft_id, ctx)
+            await self.send_typing(query.message.chat_id)
+            await query.edit_message_text("⏳ Generating draft with Ollama...")
+            await self._draft_with_fallback('ollama', query, draft_id, ctx)
         elif action == 'kimi':
-            await self._draft_with_kimi(query, draft_id, ctx)
+            await self.send_typing(query.message.chat_id)
+            await query.edit_message_text("⏳ Generating draft with Kimi K2...")
+            await self._draft_with_fallback('kimi', query, draft_id, ctx)
         elif action == 'claude':
-            await self._draft_with_claude(query, draft_id, ctx)
+            await self.send_typing(query.message.chat_id)
+            await query.edit_message_text("⏳ Generating draft with Claude...")
+            await self._draft_with_fallback('claude', query, draft_id, ctx)
         elif action == 'escalate':
             await self._escalate_to_claude(query, draft_id, ctx)
         elif action == 'escalate_kimi':
@@ -660,6 +666,100 @@ class TelegramHandler:
             await self._cancel_draft(query, draft_id, ctx)
         else:
             await query.edit_message_text(f"Unknown draft action: {action}")
+
+    async def _draft_with_fallback(self, primary: str, query, draft_id: str, ctx: Dict[str, Any]):
+        """Try primary model, fall back through chain on failure. Notifies user of fallback."""
+        chain = ['ollama', 'kimi', 'claude']
+        if primary in chain:
+            chain.remove(primary)
+        chain.insert(0, primary)
+
+        methods = {
+            'ollama': self._draft_with_ollama_inner,
+            'kimi': self._draft_with_kimi_inner,
+            'claude': self._draft_with_claude_inner,
+        }
+
+        for i, model in enumerate(chain):
+            method = methods.get(model)
+            if not method:
+                continue
+            try:
+                result = await method(ctx, draft_id)
+                if result and result.get('success'):
+                    draft_text = result['draft_text']
+                    model_label = {'ollama': 'Ollama', 'kimi': 'Kimi K2', 'claude': 'Claude'}[model]
+                    confidence = result.get('confidence', 85)
+
+                    # Note if fallback was used
+                    if i > 0:
+                        primary_label = {'ollama': 'Ollama', 'kimi': 'Kimi K2', 'claude': 'Claude'}[primary]
+                        model_label = f"{model_label} ({primary_label} unavailable)"
+
+                    self._update_draft_context(draft_id, {
+                        'draft_text': draft_text,
+                        'model_used': model,
+                        'confidence': confidence
+                    })
+                    await self._show_draft_preview(
+                        query, draft_id, draft_text, model_label, confidence
+                    )
+                    return
+                # result was False or not successful, try next
+                logger.warning(f"Draft with {model} returned non-success, trying next")
+            except Exception as e:
+                logger.warning(f"Draft with {model} failed: {e}, trying next")
+                continue
+
+        await query.edit_message_text(
+            "All AI models are currently unavailable. Please try again later."
+        )
+
+    async def _draft_with_ollama_inner(self, ctx: Dict[str, Any], draft_id: str) -> Optional[Dict]:
+        """Generate draft using Ollama (internal, returns result dict)."""
+        from ollama_client import OllamaClient
+        ollama = OllamaClient()
+        result = ollama.generate_draft(
+            email_data=ctx['email_data'],
+            instruction=ctx['instruction'],
+            template=ctx.get('pattern_match', {}).get('template') if ctx.get('pattern_match') else None
+        )
+        del ollama
+        if result.get('success'):
+            return {'success': True, 'draft_text': result.get('draft_text', ''), 'confidence': result.get('confidence', 70)}
+        return None
+
+    async def _draft_with_kimi_inner(self, ctx: Dict[str, Any], draft_id: str) -> Optional[Dict]:
+        """Generate draft using Kimi K2 (internal, returns result dict)."""
+        from kimi_client import KimiClient
+        kimi = KimiClient()
+        if not kimi.is_available():
+            return None
+        result = kimi.generate_email_draft(
+            email_data=ctx['email_data'],
+            instruction=ctx['instruction'],
+            template=ctx.get('pattern_match', {}).get('template') if ctx.get('pattern_match') else None
+        )
+        del kimi
+        if result.get('success'):
+            return {'success': True, 'draft_text': result.get('draft_text', ''), 'confidence': 95}
+        return None
+
+    async def _draft_with_claude_inner(self, ctx: Dict[str, Any], draft_id: str) -> Optional[Dict]:
+        """Generate draft using Claude (internal, returns result dict)."""
+        from claude_client import ClaudeClient
+        claude = ClaudeClient()
+        if not claude.is_available():
+            return None
+        result = claude.generate_email_draft(
+            email_data=ctx['email_data'],
+            instruction=ctx['instruction'],
+            template=ctx.get('pattern_match', {}).get('template') if ctx.get('pattern_match') else None
+        )
+        del claude
+        if result.get('success'):
+            return {'success': True, 'draft_text': result.get('draft_text', ''), 'confidence': 95}
+        return None
 
     async def _draft_with_ollama(self, query, draft_id: str, ctx: Dict[str, Any]):
         """Generate draft using Ollama."""
