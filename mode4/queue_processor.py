@@ -420,6 +420,97 @@ class QueueProcessor:
         db = self._get_db_manager()
         return db.update_queue_status(msg_id, 'pending', error_message=None)
 
+    def classify_queued_messages(self, messages: List[Dict]) -> List[Dict]:
+        """
+        Classify pending messages by intent for boot queue summary.
+
+        Mutations (todo_add, brainstorm_add, email_draft) stay pending for user confirmation.
+        Queries (todo_list, status, brainstorm_show) can be executed immediately.
+
+        Args:
+            messages: List of pending message dicts from database
+
+        Returns:
+            List of dicts with added 'intent' and 'is_mutation' fields
+        """
+        import re
+
+        classified = []
+        for msg in messages:
+            text = msg.get('message_text', '').strip()
+            text_lower = text.lower()
+
+            intent = 'unknown'
+            is_mutation = True  # Default: treat as mutation (safer)
+
+            # --- Mutations (require confirmation) ---
+
+            # Todo add
+            if any(word in text_lower for word in ['add', 'create', 'new']) and \
+               any(word in text_lower for word in ['todo', 'task', 'reminder', 'remind me', 'agenda']):
+                intent = 'todo_add'
+                is_mutation = True
+            # Simple "add X" pattern (common shorthand for todo)
+            elif text_lower.startswith('add ') and len(text_lower) > 5:
+                intent = 'todo_add'
+                is_mutation = True
+
+            # Brainstorm add
+            elif any(text_lower.startswith(p) for p in ['brainstorm ', 'brianstorm ', 'branstorm ', 'brain storm ']):
+                intent = 'brainstorm_add'
+                is_mutation = True
+
+            # Email draft
+            elif ('draft' in text_lower or 'write' in text_lower or 'compose' in text_lower) and \
+                 ('email' in text_lower or '@' in text or 'to ' in text_lower):
+                intent = 'email_draft'
+                is_mutation = True
+
+            # --- Queries (can execute immediately) ---
+
+            # Todo list
+            elif any(phrase in text_lower for phrase in ['show todo', 'list todo', 'my todo', 'my task', 'show task', 'show agenda']):
+                intent = 'todo_list'
+                is_mutation = False
+
+            # Status check
+            elif text_lower in ['status', 'updates', 'anything new', "what's happening", 'whats happening']:
+                intent = 'status'
+                is_mutation = False
+
+            # Brainstorm show
+            elif any(phrase in text_lower for phrase in ['show brainstorms', 'brainstorms', 'my brainstorms', 'list brainstorms']):
+                intent = 'brainstorm_show'
+                is_mutation = False
+
+            # Unread emails
+            elif 'unread' in text_lower:
+                intent = 'unread'
+                is_mutation = False
+
+            # Show emails / inbox
+            elif any(phrase in text_lower for phrase in ['show me my emails', 'my emails', 'email inbox', 'check emails']):
+                intent = 'email_inbox'
+                is_mutation = False
+
+            # Greeting (not actionable - skip)
+            elif text_lower in ['hi', 'hello', 'hey', 'yo', 'sup', 'morning', 'good morning']:
+                intent = 'greeting'
+                is_mutation = False
+
+            # Help
+            elif text_lower in ['help', 'what can you do']:
+                intent = 'help'
+                is_mutation = False
+
+            classified.append({
+                **msg,
+                'intent': intent,
+                'is_mutation': is_mutation,
+            })
+
+        return classified
+
     def cleanup(self):
         """Cleanup resources."""
         if self._db_manager:

@@ -218,6 +218,36 @@ SKILL_INCLUDE_IN_MORNING_BRIEF = True  # Include pending skills in morning brief
 
 
 # ============================================
+# TODO MANAGEMENT (Google Sheets as source of truth)
+# ============================================
+
+TODOS_ACTIVE_SHEET = "todos_active"
+TODOS_HISTORY_SHEET = "todos_history"
+
+
+# ============================================
+# BRAINSTORM (Google Docs)
+# ============================================
+
+# Brainstorm Doc ID - can be same as MASTER_DOC_ID or separate
+BRAINSTORM_DOC_ID = os.getenv('BRAINSTORM_DOC_ID') or MASTER_DOC_ID
+
+
+# ============================================
+# CLARIFICATION STATE
+# ============================================
+
+CLARIFICATION_TIMEOUT_MINUTES = 5
+
+
+# ============================================
+# CONFIRMATION SETTINGS
+# ============================================
+
+CONFIRMATION_REQUIRED = True  # All mutations require yes/no confirmation
+
+
+# ============================================
 # CONVERSATION MANAGER
 # ============================================
 
@@ -226,7 +256,7 @@ CONVERSATION_INTENT_MODEL = OLLAMA_MODEL
 CONVERSATION_CONTEXT_TIMEOUT = 30 * 60
 CONVERSATION_GREETING_STYLE = "friendly"
 CONVERSATION_CLARIFICATION_MODE = "smart_assumptions"
-CONVERSATION_TODO_CONFIRM = False
+CONVERSATION_TODO_CONFIRM = True
 CONVERSATION_PROACTIVE_SUGGESTIONS = True
 
 # Task completion context TTL - how long after showing todos

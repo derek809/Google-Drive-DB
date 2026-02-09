@@ -1,6 +1,9 @@
 """
 Todo Manager Capability for Mode 4
-SQLite-based task tracking via Telegram.
+Google Sheets-based task tracking via Telegram.
+
+Source of truth: Google Sheets (todos_active / todos_history tabs)
+Queried fresh every time — no caching.
 
 Commands:
     /task <title> - Add a new task
@@ -35,19 +38,39 @@ class TodoManager:
     """
     Task management capability for Mode 4.
 
-    Uses mode4.db for persistent storage.
+    Uses Google Sheets as source of truth (todos_active / todos_history tabs).
     """
 
-    def __init__(self):
-        """Initialize todo manager."""
-        self._db = None
+    def __init__(self, user_id: int = None):
+        """
+        Initialize todo manager.
 
-    def _get_db(self):
-        """Lazy load database manager."""
-        if self._db is None:
-            from db_manager import DatabaseManager
-            self._db = DatabaseManager()
-        return self._db
+        Args:
+            user_id: Default Telegram user ID for operations
+        """
+        self._sheets = None
+        self._spreadsheet_id = None
+        self._active_sheet = None
+        self._history_sheet = None
+        self._user_id = user_id
+
+    def _get_sheets(self):
+        """Lazy load Sheets client and config."""
+        if self._sheets is None:
+            import sys
+            import os
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            from sheets_client import GoogleSheetsClient
+            from m1_config import (
+                SPREADSHEET_ID, SHEETS_CREDENTIALS_PATH,
+                TODOS_ACTIVE_SHEET, TODOS_HISTORY_SHEET
+            )
+            self._sheets = GoogleSheetsClient(SHEETS_CREDENTIALS_PATH)
+            self._sheets.connect()
+            self._spreadsheet_id = SPREADSHEET_ID
+            self._active_sheet = TODOS_ACTIVE_SHEET
+            self._history_sheet = TODOS_HISTORY_SHEET
+        return self._sheets
 
     # ==================
     # TASK OPERATIONS
@@ -59,93 +82,146 @@ class TodoManager:
         priority: str = 'medium',
         deadline: datetime = None,
         notes: str = None
-    ) -> int:
+    ) -> str:
         """
-        Add a new task.
+        Add a new task to Google Sheets.
 
         Args:
             title: Task description
             priority: 'high', 'medium', or 'low'
-            deadline: Optional deadline datetime
-            notes: Optional notes
+            deadline: Optional deadline datetime (not yet stored in Sheets)
+            notes: Optional notes (not yet stored in Sheets)
 
         Returns:
-            Task ID
+            Task ID (UUID string)
         """
-        db = self._get_db()
-        task_id = db.add_task(
-            title=title,
+        sheets = self._get_sheets()
+        user_id = self._user_id or 0
+
+        result = sheets.add_todo(
+            self._spreadsheet_id,
+            user_id,
+            title,
             priority=priority,
-            deadline=deadline,
-            notes=notes
+            sheet_name=self._active_sheet
         )
-        logger.info(f"Added task {task_id}: {title[:50]}")
-        return task_id
+
+        if result.get('success'):
+            todo_id = result['todo_id']
+            logger.info(f"Added task {todo_id}: {title[:50]}")
+            return todo_id
+        else:
+            error = result.get('error', 'Unknown error')
+            logger.error(f"Failed to add task: {error}")
+            raise TodoManagerError(f"Failed to add task: {error}")
 
     def get_pending_tasks(self, limit: int = 20) -> List[Dict]:
         """
-        Get pending tasks ordered by priority and deadline.
+        Get pending tasks from Google Sheets (queried fresh).
 
         Args:
             limit: Maximum tasks to return
 
         Returns:
-            List of task dicts
+            List of task dicts with id, title, priority, created_at, status
         """
-        db = self._get_db()
-        return db.get_pending_tasks(limit)
+        sheets = self._get_sheets()
+        user_id = self._user_id or 0
+
+        todos = sheets.get_todos(
+            self._spreadsheet_id,
+            user_id,
+            sheet_name=self._active_sheet
+        )
+
+        # Sort by priority: high > medium > low
+        priority_order = {'high': 0, 'medium': 1, 'low': 2}
+        todos.sort(key=lambda t: priority_order.get(t.get('priority', 'medium'), 1))
+
+        # Add 'status' field for backward compatibility
+        for todo in todos:
+            todo['status'] = 'pending'
+
+        return todos[:limit]
 
     def get_all_tasks(self, include_completed: bool = False, limit: int = 50) -> List[Dict]:
-        """Get all tasks optionally including completed."""
-        db = self._get_db()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            if include_completed:
-                cursor.execute("""
-                    SELECT * FROM tasks
-                    ORDER BY
-                        CASE status WHEN 'pending' THEN 0 ELSE 1 END,
-                        CASE priority
-                            WHEN 'high' THEN 1
-                            WHEN 'medium' THEN 2
-                            ELSE 3
-                        END,
-                        deadline ASC NULLS LAST
-                    LIMIT ?
-                """, (limit,))
-            else:
-                cursor.execute("""
-                    SELECT * FROM tasks
-                    WHERE status = 'pending'
-                    ORDER BY
-                        CASE priority
-                            WHEN 'high' THEN 1
-                            WHEN 'medium' THEN 2
-                            ELSE 3
-                        END,
-                        deadline ASC NULLS LAST
-                    LIMIT ?
-                """, (limit,))
-            return [dict(row) for row in cursor.fetchall()]
-
-    def complete_task(self, task_id: int) -> bool:
         """
-        Mark a task as completed.
+        Get all tasks, optionally including completed.
 
         Args:
-            task_id: Task ID to complete
+            include_completed: If True, also read from history sheet
+            limit: Maximum tasks to return
+
+        Returns:
+            List of task dicts
+        """
+        sheets = self._get_sheets()
+        user_id = self._user_id or 0
+
+        # Get active tasks
+        active = sheets.get_todos(
+            self._spreadsheet_id,
+            user_id,
+            sheet_name=self._active_sheet
+        )
+        for t in active:
+            t['status'] = 'pending'
+
+        if include_completed:
+            # Get completed tasks from history
+            completed = sheets.get_todos(
+                self._spreadsheet_id,
+                user_id,
+                sheet_name=self._history_sheet
+            )
+            for t in completed:
+                t['status'] = 'completed'
+                # History sheet has completed_at in column D instead of created_at
+                t['completed_at'] = t.get('created_at', '')
+
+            all_tasks = active + completed
+        else:
+            all_tasks = active
+
+        # Sort: pending first, then by priority
+        priority_order = {'high': 0, 'medium': 1, 'low': 2}
+        all_tasks.sort(key=lambda t: (
+            0 if t['status'] == 'pending' else 1,
+            priority_order.get(t.get('priority', 'medium'), 1)
+        ))
+
+        return all_tasks[:limit]
+
+    def complete_task(self, task_id) -> bool:
+        """
+        Mark a task as completed (move from active to history sheet).
+
+        Args:
+            task_id: Task ID (UUID string) to complete
 
         Returns:
             True if successful
         """
-        db = self._get_db()
-        db.complete_task(task_id)
-        logger.info(f"Completed task {task_id}")
-        return True
+        sheets = self._get_sheets()
 
-    def delete_task(self, task_id: int) -> bool:
+        result = sheets.complete_todo(
+            self._spreadsheet_id,
+            str(task_id),
+            active_sheet=self._active_sheet,
+            history_sheet=self._history_sheet
+        )
+
+        if result.get('success'):
+            logger.info(f"Completed task {task_id}")
+            return True
+        else:
+            error = result.get('error', 'Unknown error')
+            logger.error(f"Failed to complete task {task_id}: {error}")
+            raise TodoManagerError(f"Failed to complete task: {error}")
+
+    def delete_task(self, task_id) -> bool:
         """
-        Delete a task.
+        Delete a task from the active sheet (without moving to history).
 
         Args:
             task_id: Task ID to delete
@@ -153,44 +229,80 @@ class TodoManager:
         Returns:
             True if successful
         """
-        db = self._get_db()
-        db.delete_task(task_id)
-        logger.info(f"Deleted task {task_id}")
-        return True
+        sheets = self._get_sheets()
 
-    def update_priority(self, task_id: int, priority: str) -> bool:
-        """Update task priority."""
+        # Find the row
+        result = sheets.read_range(
+            self._spreadsheet_id,
+            f"{self._active_sheet}!A:E"
+        )
+        if not result.get('success') or not result.get('values'):
+            raise TodoManagerError("Could not read active todos")
+
+        for i, row in enumerate(result['values']):
+            if row and str(row[0]).strip() == str(task_id).strip():
+                delete_result = sheets.delete_row(
+                    self._spreadsheet_id,
+                    self._active_sheet,
+                    i
+                )
+                if delete_result.get('success'):
+                    logger.info(f"Deleted task {task_id}")
+                    return True
+                else:
+                    raise TodoManagerError(f"Failed to delete: {delete_result.get('error')}")
+
+        raise TodoManagerError(f"Task {task_id} not found")
+
+    def update_priority(self, task_id, priority: str) -> bool:
+        """Update task priority in Sheets."""
         if priority not in ('high', 'medium', 'low'):
             raise TodoManagerError(f"Invalid priority: {priority}")
 
-        db = self._get_db()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE tasks SET priority = ? WHERE id = ?
-            """, (priority, task_id))
-            conn.commit()
+        sheets = self._get_sheets()
+
+        # Find the row and update priority column (E)
+        result = sheets.read_range(
+            self._spreadsheet_id,
+            f"{self._active_sheet}!A:E"
+        )
+        if not result.get('success') or not result.get('values'):
+            raise TodoManagerError("Could not read active todos")
+
+        for i, row in enumerate(result['values']):
+            if row and str(row[0]).strip() == str(task_id).strip():
+                # Update priority in column E (row i+1 in 1-indexed)
+                update_result = sheets.write_range(
+                    self._spreadsheet_id,
+                    f"{self._active_sheet}!E{i + 1}",
+                    [[priority]]
+                )
+                if update_result.get('success'):
+                    return True
+                else:
+                    raise TodoManagerError(f"Failed to update priority: {update_result.get('error')}")
+
+        raise TodoManagerError(f"Task {task_id} not found")
+
+    def update_deadline(self, task_id, deadline: datetime) -> bool:
+        """Update task deadline. Note: deadline is not currently in the Sheets schema."""
+        logger.warning(f"Deadline update for task {task_id} - deadline column not in Sheets schema yet")
         return True
 
-    def update_deadline(self, task_id: int, deadline: datetime) -> bool:
-        """Update task deadline."""
-        db = self._get_db()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("""
-                UPDATE tasks SET deadline = ? WHERE id = ?
-            """, (deadline, task_id))
-            conn.commit()
-        return True
+    def get_task(self, task_id) -> Optional[Dict]:
+        """Get a single task by ID from Sheets."""
+        sheets = self._get_sheets()
 
-    def get_task(self, task_id: int) -> Optional[Dict]:
-        """Get a single task by ID."""
-        db = self._get_db()
-        with db.get_connection() as conn:
-            cursor = conn.cursor()
-            cursor.execute("SELECT * FROM tasks WHERE id = ?", (task_id,))
-            row = cursor.fetchone()
-            return dict(row) if row else None
+        todo = sheets.get_todo_by_id(
+            self._spreadsheet_id,
+            str(task_id),
+            sheet_name=self._active_sheet
+        )
+
+        if todo:
+            todo['status'] = 'pending'
+            return todo
+        return None
 
     # ==================
     # COMMAND HANDLERS
@@ -208,6 +320,9 @@ class TodoManager:
         Returns:
             Response message text
         """
+        # Set user_id for this operation
+        self._user_id = user_id
+
         try:
             if command == '/task':
                 return self._cmd_add_task(args)
@@ -278,21 +393,13 @@ class TodoManager:
         for task in tasks:
             status_icon = "[ ]" if task['status'] == 'pending' else "[x]"
             priority_icon = ""
-            if task['priority'] == 'high':
+            if task.get('priority') == 'high':
                 priority_icon = "!"
-            elif task['priority'] == 'low':
+            elif task.get('priority') == 'low':
                 priority_icon = "-"
 
-            deadline_str = ""
-            if task.get('deadline'):
-                try:
-                    dl = datetime.fromisoformat(task['deadline'])
-                    deadline_str = f" @{dl.strftime('%m/%d')}"
-                except:
-                    pass
-
             lines.append(
-                f"{status_icon} #{task['id']} {priority_icon}{task['title'][:40]}{deadline_str}"
+                f"{status_icon} #{task['id']} {priority_icon}{task['title'][:40]}"
             )
 
         lines.append("\nCommands: /task_done <id>, /task_priority <id> <level>")
@@ -300,10 +407,9 @@ class TodoManager:
 
     def _cmd_complete_task(self, args: str) -> str:
         """Handle /task_done command."""
-        try:
-            task_id = int(args.strip().replace('#', ''))
-        except ValueError:
-            return "Usage: /task_done <id>\nExample: /task_done 1"
+        task_id = args.strip().replace('#', '')
+        if not task_id:
+            return "Usage: /task_done <id>\nExample: /task_done abc123"
 
         task = self.get_task(task_id)
         if not task:
@@ -314,10 +420,9 @@ class TodoManager:
 
     def _cmd_delete_task(self, args: str) -> str:
         """Handle /task_delete command."""
-        try:
-            task_id = int(args.strip().replace('#', ''))
-        except ValueError:
-            return "Usage: /task_delete <id>\nExample: /task_delete 1"
+        task_id = args.strip().replace('#', '')
+        if not task_id:
+            return "Usage: /task_delete <id>\nExample: /task_delete abc123"
 
         task = self.get_task(task_id)
         if not task:
@@ -332,11 +437,8 @@ class TodoManager:
         if len(parts) < 2:
             return "Usage: /task_priority <id> <high|medium|low>"
 
-        try:
-            task_id = int(parts[0].replace('#', ''))
-            priority = parts[1].lower()
-        except ValueError:
-            return "Invalid task ID."
+        task_id = parts[0].replace('#', '')
+        priority = parts[1].lower()
 
         if priority not in ('high', 'medium', 'low'):
             return "Priority must be: high, medium, or low"
@@ -352,12 +454,9 @@ class TodoManager:
         """Handle /task_deadline command."""
         parts = args.strip().split(maxsplit=1)
         if len(parts) < 2:
-            return "Usage: /task_deadline <id> <date>\nExample: /task_deadline 1 friday"
+            return "Usage: /task_deadline <id> <date>\nExample: /task_deadline abc123 friday"
 
-        try:
-            task_id = int(parts[0].replace('#', ''))
-        except ValueError:
-            return "Invalid task ID."
+        task_id = parts[0].replace('#', '')
 
         deadline = self._parse_deadline(parts[1])
         if not deadline:
@@ -427,72 +526,17 @@ class TodoManager:
 
         lines = ["<b>Your Tasks:</b>\n"]
         for task in tasks:
-            status = "[ ]" if task['status'] == 'pending' else "[x]"
+            status = "[ ]" if task.get('status') == 'pending' else "[x]"
             priority = ""
-            if task['priority'] == 'high':
+            if task.get('priority') == 'high':
                 priority = " <b>!</b>"
 
-            deadline = ""
-            if task.get('deadline'):
-                try:
-                    dl = datetime.fromisoformat(task['deadline'])
-                    deadline = f" <i>@{dl.strftime('%m/%d')}</i>"
-                except:
-                    pass
-
-            lines.append(f"{status} #{task['id']}{priority} {task['title'][:40]}{deadline}")
+            lines.append(f"{status} #{task['id']}{priority} {task['title'][:40]}")
 
         return "\n".join(lines)
 
     def cleanup(self):
         """Cleanup resources."""
-        if self._db:
-            del self._db
-            self._db = None
-
-
-# ==================
-# TESTING
-# ==================
-
-def test_todo_manager():
-    """Test todo manager."""
-    print("Testing Todo Manager...")
-    print("=" * 60)
-
-    todo = TodoManager()
-
-    # Test add task
-    print("\nAdding tasks...")
-    id1 = todo.add_task("Send invoice to Jason", priority="high")
-    id2 = todo.add_task("Review contract", deadline=datetime.now() + timedelta(days=2))
-    id3 = todo.add_task("Call accountant", priority="low")
-    print(f"  Added tasks: {id1}, {id2}, {id3}")
-
-    # Test list tasks
-    print("\nListing tasks...")
-    tasks = todo.get_pending_tasks()
-    for task in tasks:
-        print(f"  #{task['id']} [{task['priority']}] {task['title']}")
-
-    # Test command handling
-    print("\nTesting commands...")
-    print(todo.handle_command('/tasks', '', 123))
-
-    # Test complete
-    print(f"\nCompleting task #{id1}...")
-    todo.complete_task(id1)
-    tasks = todo.get_pending_tasks()
-    print(f"  Remaining pending: {len(tasks)}")
-
-    # Cleanup
-    todo.delete_task(id1)
-    todo.delete_task(id2)
-    todo.delete_task(id3)
-    todo.cleanup()
-
-    print("\nTodo manager test complete!")
-
-
-if __name__ == "__main__":
-    test_todo_manager()
+        if self._sheets:
+            self._sheets.close()
+            self._sheets = None

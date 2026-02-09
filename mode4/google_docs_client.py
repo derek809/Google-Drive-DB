@@ -512,8 +512,200 @@ class GoogleDocsClient:
             return {"success": False, "error": str(e)}
 
     # ==================
+    # BRAINSTORM OPERATIONS
+    # ==================
+
+    def append_brainstorm(self, doc_id: str, idea_text: str) -> Dict[str, Any]:
+        """
+        Append a timestamped brainstorm entry to the ## BRAINSTORM section.
+
+        Format: [YYYY-MM-DD HH:MM] idea_text
+
+        Args:
+            doc_id: Google Doc ID
+            idea_text: The brainstorm idea text
+
+        Returns:
+            Dict with success status
+        """
+        self._ensure_authenticated()
+        from datetime import datetime
+
+        timestamp = datetime.now().strftime('%Y-%m-%d %H:%M')
+        entry_text = f"[{timestamp}] {idea_text}\n"
+
+        try:
+            document = self.service.documents().get(documentId=doc_id).execute()
+
+            # Find or create ## BRAINSTORM section
+            brainstorm_index = self._find_section(document, 'BRAINSTORM')
+
+            if brainstorm_index is None:
+                # Create ## BRAINSTORM section at end of document
+                end_index = self._get_document_end_index(document)
+                requests = [
+                    {
+                        'insertText': {
+                            'location': {'index': end_index},
+                            'text': '\n\n## BRAINSTORM\n\n'
+                        }
+                    }
+                ]
+                self.service.documents().batchUpdate(
+                    documentId=doc_id,
+                    body={'requests': requests}
+                ).execute()
+
+                # Re-fetch document
+                document = self.service.documents().get(documentId=doc_id).execute()
+                brainstorm_index = self._find_section(document, 'BRAINSTORM')
+
+            # Find insertion point (after the ## BRAINSTORM heading)
+            insert_index = self._find_insert_position_after_section(
+                document, brainstorm_index
+            )
+
+            # Insert the entry
+            requests = [
+                {
+                    'insertText': {
+                        'location': {'index': insert_index},
+                        'text': entry_text
+                    }
+                }
+            ]
+
+            self.service.documents().batchUpdate(
+                documentId=doc_id,
+                body={'requests': requests}
+            ).execute()
+
+            logger.info(f"Appended brainstorm to document {doc_id}: {idea_text[:50]}")
+
+            return {
+                "success": True,
+                "document_id": doc_id,
+                "entry": entry_text.strip()
+            }
+
+        except HttpError as e:
+            return {"success": False, "error": self._handle_http_error(e, "append_brainstorm")}
+        except Exception as e:
+            logger.error(f"Error appending brainstorm: {e}")
+            return {"success": False, "error": str(e)}
+
+    def read_brainstorms(self, doc_id: str, limit: int = 10) -> Dict[str, Any]:
+        """
+        Read recent brainstorm entries from the ## BRAINSTORM section.
+
+        Args:
+            doc_id: Google Doc ID
+            limit: Maximum entries to return
+
+        Returns:
+            Dict with list of brainstorm entries
+        """
+        self._ensure_authenticated()
+
+        try:
+            content = self.get_doc_content(doc_id)
+
+            # Find ## BRAINSTORM section
+            brainstorm_match = re.search(
+                r'##\s*BRAINSTORM\s*\n(.*?)(?=\n##|\Z)',
+                content, re.DOTALL | re.IGNORECASE
+            )
+
+            if not brainstorm_match:
+                return {
+                    "success": True,
+                    "entries": [],
+                    "count": 0,
+                    "note": "No ## BRAINSTORM section found"
+                }
+
+            brainstorm_content = brainstorm_match.group(1).strip()
+
+            if not brainstorm_content:
+                return {
+                    "success": True,
+                    "entries": [],
+                    "count": 0
+                }
+
+            # Parse entries: [YYYY-MM-DD HH:MM] text
+            entries = []
+            for line in brainstorm_content.split('\n'):
+                line = line.strip()
+                if not line:
+                    continue
+
+                entry_match = re.match(
+                    r'\[(\d{4}-\d{2}-\d{2}\s+\d{2}:\d{2})\]\s*(.+)',
+                    line
+                )
+                if entry_match:
+                    entries.append({
+                        'timestamp': entry_match.group(1),
+                        'idea': entry_match.group(2)
+                    })
+                elif line:
+                    # Non-timestamped line, include as-is
+                    entries.append({
+                        'timestamp': '',
+                        'idea': line
+                    })
+
+            # Return most recent entries (last N)
+            recent = entries[-limit:] if len(entries) > limit else entries
+
+            return {
+                "success": True,
+                "entries": recent,
+                "count": len(entries),
+                "showing": len(recent)
+            }
+
+        except Exception as e:
+            return {"success": False, "error": str(e)}
+
+    # ==================
     # INTERNAL HELPERS
     # ==================
+
+    def _find_section(self, document: Dict, section_name: str) -> Optional[int]:
+        """Find the start index of a ## SECTION_NAME section."""
+        body = document.get('body', {})
+
+        for element in body.get('content', []):
+            if 'paragraph' in element:
+                text = ''
+                for text_run in element['paragraph'].get('elements', []):
+                    if 'textRun' in text_run:
+                        text += text_run['textRun'].get('content', '')
+
+                if re.match(rf'##\s*{re.escape(section_name)}', text, re.IGNORECASE):
+                    return element.get('startIndex')
+
+        return None
+
+    def _find_insert_position_after_section(
+        self, document: Dict, section_start: int
+    ) -> int:
+        """Find the position right after a section heading line."""
+        body = document.get('body', {})
+
+        found_section = False
+        for element in body.get('content', []):
+            start = element.get('startIndex', 0)
+
+            if start >= section_start:
+                found_section = True
+
+            if found_section and 'paragraph' in element:
+                return element.get('endIndex', start + 1)
+
+        return self._get_document_end_index(document)
 
     def _get_document_end_index(self, document: Dict) -> int:
         """Get the index of the document end."""
