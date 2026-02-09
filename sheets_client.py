@@ -555,6 +555,272 @@ class GoogleSheetsClient:
             }
 
     # ==================
+    # TODO MANAGEMENT (Google Sheets as source of truth)
+    # ==================
+
+    def get_todos(
+        self,
+        spreadsheet_id: str,
+        user_id: int,
+        sheet_name: str = "todos_active"
+    ) -> List[Dict[str, Any]]:
+        """
+        Get active todos for a user from Sheets (queried fresh every time).
+
+        Args:
+            spreadsheet_id: The spreadsheet ID
+            user_id: Telegram user ID to filter by
+            sheet_name: Tab name for active todos
+
+        Returns:
+            List of todo dicts with id, user_id, title, created_at, priority
+        """
+        result = self.read_range(spreadsheet_id, f"{sheet_name}!A:E")
+
+        if not result.get('success') or not result.get('values'):
+            return []
+
+        rows = result['values']
+        # Skip header row
+        if rows and rows[0] and str(rows[0][0]).lower() == 'id':
+            rows = rows[1:]
+
+        todos = []
+        for i, row in enumerate(rows):
+            if len(row) < 3:
+                continue
+            row_user_id = str(row[1]).strip()
+            if str(user_id) == row_user_id:
+                todos.append({
+                    'id': row[0],
+                    'user_id': int(row[1]),
+                    'title': row[2],
+                    'created_at': row[3] if len(row) > 3 else '',
+                    'priority': row[4] if len(row) > 4 else 'medium',
+                    'sheet_row': i + 2  # 1-indexed + header
+                })
+
+        return todos
+
+    def add_todo(
+        self,
+        spreadsheet_id: str,
+        user_id: int,
+        title: str,
+        priority: str = 'medium',
+        sheet_name: str = "todos_active"
+    ) -> Dict[str, Any]:
+        """
+        Add a new todo to the active sheet.
+
+        Args:
+            spreadsheet_id: The spreadsheet ID
+            user_id: Telegram user ID
+            title: Task title
+            priority: 'high', 'medium', or 'low'
+            sheet_name: Tab name for active todos
+
+        Returns:
+            Dict with success status and todo_id
+        """
+        import uuid
+        from datetime import datetime
+
+        todo_id = str(uuid.uuid4())[:8]
+        created_at = datetime.now().isoformat()
+
+        result = self.append_rows(
+            spreadsheet_id,
+            f"{sheet_name}!A:E",
+            [[todo_id, str(user_id), title, created_at, priority]]
+        )
+
+        if result.get('success'):
+            return {
+                'success': True,
+                'todo_id': todo_id,
+                'title': title,
+                'priority': priority
+            }
+        return {'success': False, 'error': result.get('error', 'Failed to add todo')}
+
+    def find_todo(
+        self,
+        spreadsheet_id: str,
+        user_id: int,
+        title: str,
+        sheet_name: str = "todos_active"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Check for duplicate todo by title (case-insensitive).
+
+        Returns:
+            Matching todo dict if found, None otherwise
+        """
+        todos = self.get_todos(spreadsheet_id, user_id, sheet_name)
+        title_lower = title.lower().strip()
+
+        for todo in todos:
+            if todo['title'].lower().strip() == title_lower:
+                return todo
+        return None
+
+    def complete_todo(
+        self,
+        spreadsheet_id: str,
+        todo_id: str,
+        active_sheet: str = "todos_active",
+        history_sheet: str = "todos_history"
+    ) -> Dict[str, Any]:
+        """
+        Complete a todo: copy to history sheet, delete from active sheet.
+
+        Args:
+            spreadsheet_id: The spreadsheet ID
+            todo_id: The todo's UUID
+            active_sheet: Tab name for active todos
+            history_sheet: Tab name for completed todos
+
+        Returns:
+            Dict with success status and completed todo info
+        """
+        from datetime import datetime
+
+        # Find the todo in active sheet
+        result = self.read_range(spreadsheet_id, f"{active_sheet}!A:E")
+        if not result.get('success') or not result.get('values'):
+            return {'success': False, 'error': 'Could not read active todos'}
+
+        rows = result['values']
+        target_row = None
+        target_row_index = None
+
+        for i, row in enumerate(rows):
+            if row and str(row[0]).strip() == str(todo_id).strip():
+                target_row = row
+                target_row_index = i
+                break
+
+        if target_row is None:
+            return {'success': False, 'error': f'Todo {todo_id} not found'}
+
+        title = target_row[2] if len(target_row) > 2 else ''
+        completed_at = datetime.now().isoformat()
+
+        # Append to history
+        history_result = self.append_rows(
+            spreadsheet_id,
+            f"{history_sheet}!A:E",
+            [[todo_id, target_row[1] if len(target_row) > 1 else '',
+              title, completed_at, todo_id]]
+        )
+
+        if not history_result.get('success'):
+            return {'success': False, 'error': 'Failed to write to history'}
+
+        # Delete from active sheet
+        delete_result = self.delete_row(spreadsheet_id, active_sheet, target_row_index)
+
+        if not delete_result.get('success'):
+            return {'success': False, 'error': 'Moved to history but failed to remove from active'}
+
+        return {
+            'success': True,
+            'todo_id': todo_id,
+            'title': title,
+            'completed_at': completed_at
+        }
+
+    def get_todo_by_id(
+        self,
+        spreadsheet_id: str,
+        todo_id: str,
+        sheet_name: str = "todos_active"
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Get a single todo by its ID.
+
+        Returns:
+            Todo dict if found, None otherwise
+        """
+        result = self.read_range(spreadsheet_id, f"{sheet_name}!A:E")
+        if not result.get('success') or not result.get('values'):
+            return None
+
+        for i, row in enumerate(result['values']):
+            if row and str(row[0]).strip() == str(todo_id).strip():
+                return {
+                    'id': row[0],
+                    'user_id': int(row[1]) if len(row) > 1 else 0,
+                    'title': row[2] if len(row) > 2 else '',
+                    'created_at': row[3] if len(row) > 3 else '',
+                    'priority': row[4] if len(row) > 4 else 'medium',
+                    'sheet_row': i + 1
+                }
+        return None
+
+    def delete_row(
+        self,
+        spreadsheet_id: str,
+        sheet_name: str,
+        row_index: int
+    ) -> Dict[str, Any]:
+        """
+        Delete a row from a sheet by index (0-based).
+
+        Uses the Sheets batchUpdate API to delete a specific row.
+
+        Args:
+            spreadsheet_id: The spreadsheet ID
+            sheet_name: The sheet tab name
+            row_index: 0-based row index to delete
+
+        Returns:
+            Dict with success status
+        """
+        self._ensure_connected()
+
+        try:
+            # Get sheet ID from sheet name
+            metadata = self.get_metadata(spreadsheet_id)
+            if not metadata.get('success'):
+                return {'success': False, 'error': 'Could not get sheet metadata'}
+
+            sheet_id = None
+            for sheet in metadata.get('sheets', []):
+                if sheet.get('title') == sheet_name:
+                    sheet_id = sheet.get('sheet_id')
+                    break
+
+            if sheet_id is None:
+                return {'success': False, 'error': f'Sheet "{sheet_name}" not found'}
+
+            request = {
+                'requests': [{
+                    'deleteDimension': {
+                        'range': {
+                            'sheetId': sheet_id,
+                            'dimension': 'ROWS',
+                            'startIndex': row_index,
+                            'endIndex': row_index + 1
+                        }
+                    }
+                }]
+            }
+
+            self.service.spreadsheets().batchUpdate(
+                spreadsheetId=spreadsheet_id,
+                body=request
+            ).execute()
+
+            return {'success': True}
+
+        except HttpError as e:
+            return self._handle_http_error(e, "delete_row")
+        except Exception as e:
+            return {'success': False, 'error': str(e)}
+
+    # ==================
     # ERROR HANDLING
     # ==================
 

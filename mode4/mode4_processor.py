@@ -605,30 +605,145 @@ class Mode4Processor:
         await self.telegram.run_async(message_callback=self.process_message)
 
     async def _process_startup_queue(self):
-        """Process any messages queued while bot was offline."""
+        """
+        Process any messages queued while bot was offline.
+
+        Enhanced flow:
+        1. Get pending messages from database
+        2. Classify each by intent (mutation vs query)
+        3. Execute queries immediately (todo_list, status, etc.)
+        4. Group mutations by user and send summary notification
+        5. Store pending mutations in user context for "yes 1" / "yes all" responses
+        """
         logger.info("Checking for queued messages...")
 
         try:
-            status = self.queue_processor.get_queue_status()
-            pending = status.get('pending_count', 0)
+            db = self.queue_processor._get_db_manager()
+            pending_msgs = db.get_pending_queue_messages(limit=50)
 
-            if pending > 0:
-                logger.info(f"Found {pending} pending messages in queue")
-
-                async def progress_callback(msg_id, status, details):
-                    logger.info(f"Queue message {msg_id}: {status}")
-
-                results = await self.queue_processor.process_queue(
-                    progress_callback=progress_callback,
-                    telegram_handler=self.telegram
-                )
-
-                logger.info(
-                    f"Queue processing complete: {results['successful']} successful, "
-                    f"{results['failed']} failed"
-                )
-            else:
+            if not pending_msgs:
                 logger.info("No pending messages in queue")
+                return
+
+            logger.info(f"Found {len(pending_msgs)} pending messages in queue")
+
+            # Classify all messages by intent
+            classified = self.queue_processor.classify_queued_messages(pending_msgs)
+
+            # Group by user
+            by_user = {}
+            for msg in classified:
+                uid = msg.get('user_id', 0)
+                if uid not in by_user:
+                    by_user[uid] = {'mutations': [], 'queries': []}
+
+                if msg.get('is_mutation'):
+                    by_user[uid]['mutations'].append(msg)
+                else:
+                    by_user[uid]['queries'].append(msg)
+
+            # Process each user's messages
+            for user_id, groups in by_user.items():
+                chat_id = None
+
+                # Execute queries immediately
+                for query_msg in groups['queries']:
+                    chat_id = query_msg.get('chat_id', chat_id)
+                    msg_id = query_msg.get('id')
+                    intent = query_msg.get('intent', 'unknown')
+
+                    logger.info(f"Auto-executing query: user={user_id}, intent={intent}")
+
+                    try:
+                        # Mark as completed — queries don't need confirmation
+                        db.update_queue_status(msg_id, 'completed', model_used='auto_query')
+
+                        # Route to conversation manager for execution
+                        if self._telegram and hasattr(self._telegram, 'conversation_manager'):
+                            conv_mgr = self._telegram.conversation_manager
+                            if conv_mgr and chat_id:
+                                await conv_mgr.handle_message(
+                                    query_msg.get('message_text', ''),
+                                    user_id,
+                                    chat_id
+                                )
+                    except Exception as e:
+                        logger.error(f"Error auto-executing query {msg_id}: {e}")
+                        db.update_queue_status(msg_id, 'failed', error_message=str(e))
+
+                # Build mutation summary for user
+                mutations = groups['mutations']
+                if not mutations:
+                    continue
+
+                # Get chat_id from mutations
+                chat_id = mutations[0].get('chat_id', chat_id)
+                if not chat_id:
+                    logger.warning(f"No chat_id for user {user_id}, skipping summary")
+                    continue
+
+                # Build summary message
+                intent_labels = {
+                    'todo_add': 'Add to todo list?',
+                    'brainstorm_add': 'Add to brainstorm doc?',
+                    'email_draft': 'Create email draft?',
+                    'unknown': 'Process?',
+                }
+
+                lines = [f"📬 You have {len(mutations)} pending action{'s' if len(mutations) > 1 else ''} from while I was offline:\n"]
+
+                pending_items = []
+                for i, msg in enumerate(mutations, 1):
+                    text = msg.get('message_text', '')
+                    intent = msg.get('intent', 'unknown')
+                    received = msg.get('received_at', '')
+                    msg_id = msg.get('id')
+
+                    # Format time
+                    time_str = ''
+                    if received:
+                        try:
+                            from datetime import datetime as dt
+                            if isinstance(received, str):
+                                parsed_time = dt.fromisoformat(received)
+                            else:
+                                parsed_time = received
+                            time_str = parsed_time.strftime('%I:%M%p').lower().lstrip('0')
+                        except Exception:
+                            time_str = str(received)[:5]
+
+                    label = intent_labels.get(intent, 'Process?')
+                    lines.append(f"{i}. ⏰ {time_str} — \"{text[:50]}\" → {label}")
+
+                    # Store for queue response handling
+                    pending_items.append({
+                        'num': i,
+                        'text': text,
+                        'intent': intent,
+                        'msg_id': msg_id,
+                    })
+
+                    # Mark as processing (not completed yet — awaiting user decision)
+                    db.update_queue_status(msg_id, 'processing')
+
+                lines.append("\nReply: \"yes 1\", \"yes all\", \"review 3\", or \"no 2\"")
+
+                summary_text = "\n".join(lines)
+
+                # Store pending items in user context for queue response handling
+                if self._telegram and hasattr(self._telegram, 'conversation_manager'):
+                    conv_mgr = self._telegram.conversation_manager
+                    if conv_mgr:
+                        conv_mgr.update_context(user_id, {
+                            'pending_queue': pending_items
+                        })
+
+                # Send summary notification
+                try:
+                    await self.telegram.send_response(chat_id, summary_text)
+                    logger.info(f"Sent boot queue summary to user {user_id}: {len(mutations)} pending items")
+                except Exception as e:
+                    logger.error(f"Failed to send queue summary to user {user_id}: {e}")
 
         except Exception as e:
             logger.error(f"Error processing startup queue: {e}")

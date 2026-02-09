@@ -326,6 +326,110 @@ class DatabaseManager:
                 ON workflows(updated_at)
             """)
 
+            # Clarification state for multi-step flows (survives restart)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS clarification_state (
+                    user_id INTEGER PRIMARY KEY,
+                    intent TEXT NOT NULL,
+                    missing_fields TEXT NOT NULL,
+                    collected_data TEXT DEFAULT '{}',
+                    started_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL
+                )
+            """)
+
+            conn.commit()
+
+    # ==================
+    # CLARIFICATION STATE
+    # ==================
+
+    def set_clarification(
+        self,
+        user_id: int,
+        intent: str,
+        fields: list,
+        timeout_minutes: int = 5
+    ):
+        """
+        Start a clarification flow for a user.
+
+        Args:
+            user_id: Telegram user ID
+            intent: The intent being clarified (e.g., 'email_draft')
+            fields: List of field names to collect (e.g., ['subject', 'message', 'recipient'])
+            timeout_minutes: How long before the clarification expires
+        """
+        from datetime import datetime, timedelta
+        expires_at = (datetime.now() + timedelta(minutes=timeout_minutes)).isoformat()
+
+        with self.get_connection() as conn:
+            conn.execute("""
+                INSERT OR REPLACE INTO clarification_state
+                (user_id, intent, missing_fields, collected_data, started_at, expires_at)
+                VALUES (?, ?, ?, '{}', ?, ?)
+            """, (user_id, intent, json.dumps(fields), datetime.now().isoformat(), expires_at))
+            conn.commit()
+
+    def get_clarification(self, user_id: int) -> dict:
+        """
+        Get active clarification state for a user.
+
+        Returns:
+            Dict with 'intent', 'missing_fields', 'collected_data', or None if expired/not found
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute("""
+                SELECT intent, missing_fields, collected_data, expires_at
+                FROM clarification_state
+                WHERE user_id = ?
+            """, (user_id,))
+            row = cursor.fetchone()
+
+        if not row:
+            return None
+
+        # Check expiration
+        expires_at = row['expires_at']
+        if datetime.fromisoformat(expires_at) < datetime.now():
+            self.clear_clarification(user_id)
+            return None
+
+        return {
+            'intent': row['intent'],
+            'missing_fields': json.loads(row['missing_fields']),
+            'collected_data': json.loads(row['collected_data'])
+        }
+
+    def update_clarification(
+        self,
+        user_id: int,
+        remaining_fields: list,
+        collected_data: dict
+    ):
+        """
+        Update clarification state with collected answer.
+
+        Args:
+            user_id: Telegram user ID
+            remaining_fields: Updated list of fields still needed
+            collected_data: Updated dict of collected answers
+        """
+        with self.get_connection() as conn:
+            conn.execute("""
+                UPDATE clarification_state
+                SET missing_fields = ?, collected_data = ?
+                WHERE user_id = ?
+            """, (json.dumps(remaining_fields), json.dumps(collected_data), user_id))
+            conn.commit()
+
+    def clear_clarification(self, user_id: int):
+        """Clear clarification state for a user."""
+        with self.get_connection() as conn:
+            conn.execute(
+                "DELETE FROM clarification_state WHERE user_id = ?",
+                (user_id,)
+            )
             conn.commit()
 
     # ==================

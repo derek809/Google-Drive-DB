@@ -62,6 +62,13 @@ class Intent(Enum):
     SKILL_LIST = "skill_list"          # "show my skills", "recent ideas"
     SKILL_SEARCH = "skill_search"      # "find skill about..."
 
+    # Brainstorm
+    BRAINSTORM_ADD = "brainstorm_add"  # "brainstorm AI toaster"
+    BRAINSTORM_SHOW = "brainstorm_show"  # "show brainstorms", "ideas"
+
+    # Queue Management
+    QUEUE_RESPONSE = "queue_response"  # "yes 1", "no 2", "yes all"
+
     # Fallback
     UNCLEAR = "unclear"                # Can't determine intent
     COMMAND = "command"                # Explicit /command
@@ -222,6 +229,23 @@ class ConversationManager:
                     if result:
                         return result
 
+        # --- Clarification State: check for active multi-step flow ---
+        try:
+            from db_manager import DatabaseManager
+            _clarification_db = DatabaseManager()
+            clarification = _clarification_db.get_clarification(user_id)
+            if clarification:
+                logger.info(f"Active clarification for user {user_id}: {clarification['intent']}")
+                result = await self._continue_clarification(user_id, text, chat_id, clarification)
+                if result:
+                    return result
+        except Exception as e:
+            logger.warning(f"Clarification check failed: {e}")
+
+        # --- Queue Response Detection ---
+        if self._is_queue_response(text):
+            return await self._handle_queue_response(user_id, text, chat_id)
+
         # Check if it's legacy email format (backward compatibility)
         if self._is_legacy_email_format(text):
             logger.info("Legacy email format detected, routing to email processor")
@@ -378,10 +402,19 @@ class ConversationManager:
         if text_clean.startswith('thank') or text_clean.startswith('thx'):
             return Intent.CASUAL_CHAT
 
+        # Brainstorm add/show - check BEFORE idea bouncing
+        brainstorm_prefixes = ['brainstorm ', 'brianstorm ', 'branstorm ', 'brain storm ', 'brainstrom ']
+        if any(text_lower.startswith(p) for p in brainstorm_prefixes):
+            return Intent.BRAINSTORM_ADD
+
+        brainstorm_show_phrases = ['show brainstorms', 'brainstorms', 'show brainstorm',
+                                   'my brainstorms', 'list brainstorms', 'recent brainstorms']
+        if text_clean in brainstorm_show_phrases or any(text_lower.startswith(p) for p in brainstorm_show_phrases):
+            return Intent.BRAINSTORM_SHOW
+
         # Idea bouncing - check BEFORE help requests (since "help me think" contains "help")
         idea_patterns = ['help me think', 'bounce idea', 'feedback on', 'what do you think',
-                        'think through', 'brainstorm', 'explore this idea',
-                        'brianstorm', 'branstorm', 'brain storm', 'brainstrom']
+                        'think through', 'explore this idea']
         if any(phrase in text_lower for phrase in idea_patterns):
             return Intent.IDEA_BOUNCE
 
@@ -484,6 +517,8 @@ class ConversationManager:
         """
         Use LLM for intent classification when rules don't match.
 
+        Tries Kimi first (faster, smarter), falls back to Ollama if unavailable.
+
         IMPORTANT: This fallback should be CONSERVATIVE - if unsure, return UNCLEAR
         and let the user clarify rather than making wrong guesses.
 
@@ -494,11 +529,8 @@ class ConversationManager:
         Returns:
             Intent enum value
         """
-        try:
-            import ollama
-
-            prompt = f"""You are classifying a user message to a personal assistant bot.
-The bot helps with: emails, todos, information lookups, and general chat.
+        prompt = f"""You are classifying a user message to a personal assistant bot.
+The bot helps with: emails, todos, information lookups, brainstorming, and general chat.
 
 IMPORTANT: If the message is casual conversation (greetings, thanks, small talk),
 classify it as "casual" or "greeting". Do NOT classify casual messages as email requests.
@@ -511,9 +543,11 @@ Classify this message. Return ONLY ONE word from this list:
 - todo_add: wants to add a task/todo/reminder
 - todo_complete: wants to mark a task as done/complete/finished (e.g. "1 is done", "#2 complete")
 - todo_list: wants to see their tasks
+- brainstorm_add: wants to brainstorm or jot down an idea
+- brainstorm_show: wants to see saved brainstorms/ideas
 - digest: wants email summary or morning brief
 - status: wants system status
-- idea: wants to brainstorm or get feedback
+- idea: wants to bounce an idea or get feedback interactively
 - help: wants to know capabilities/how to use the bot
 - unclear: cannot confidently determine (USE THIS IF UNSURE)
 
@@ -521,32 +555,47 @@ Message: "{text}"
 
 Return ONLY the intent word (nothing else):"""
 
-            # Use ollama library directly
-            from m1_config import OLLAMA_MODEL
-            response = ollama.generate(
-                model=OLLAMA_MODEL,
-                prompt=prompt,
-                options={'temperature': 0.1, 'num_predict': 10}
-            )
+        intent_str = None
 
-            intent_str = response['response'].strip().lower()
-            logger.debug(f"LLM classified intent as: {intent_str}")
+        # Try Kimi first (primary)
+        try:
+            from kimi_client import KimiClient
+            kimi = KimiClient()
+            if kimi.is_available():
+                response = kimi._call_api(prompt, max_tokens=10)
+                intent_str = response.strip().lower()
+                logger.debug(f"Kimi classified intent as: {intent_str}")
+        except Exception as e:
+            logger.debug(f"Kimi intent classification unavailable: {e}")
 
-            # Map to Intent enum
+        # Fall back to Ollama if Kimi didn't work
+        if not intent_str:
+            try:
+                import ollama
+                from m1_config import OLLAMA_MODEL
+                response = ollama.generate(
+                    model=OLLAMA_MODEL,
+                    prompt=prompt,
+                    options={'temperature': 0.1, 'num_predict': 10}
+                )
+                intent_str = response['response'].strip().lower()
+                logger.debug(f"Ollama classified intent as: {intent_str}")
+            except Exception as e:
+                logger.warning(f"Ollama intent classification also failed: {e}")
+
+        # Map LLM response to Intent enum
+        if intent_str:
             for intent in Intent:
                 if intent.value in intent_str:
                     return intent
 
-        except Exception as e:
-            logger.warning(f"LLM intent classification failed: {e}")
-
-        # Final fallback: BE CONSERVATIVE
+        # Final fallback: BE CONSERVATIVE (no LLM available)
         # Only treat as email if it CLEARLY looks like email format
         text_lower = text.lower()
         if text_lower.startswith('re:') or text_lower.startswith('from '):
             return Intent.EMAIL_DRAFT
 
-        # If it has a dash but also has conversational words, it's probably NOT email
+        # If it has conversational words, it's probably NOT email
         conversational_starts = ['hi', 'hello', 'hey', 'thanks', 'ok', 'cool', 'yes', 'no',
                                   'sure', 'great', 'nice', 'wow', 'lol', 'haha']
         if any(text_lower.startswith(word) for word in conversational_starts):
@@ -600,7 +649,7 @@ Return ONLY the intent word (nothing else):"""
 
         # Todo intents
         elif intent == Intent.TODO_ADD:
-            return await self._handle_todo_add(text, chat_id)
+            return await self._handle_todo_add(text, chat_id, user_id)
 
         elif intent == Intent.TODO_LIST:
             await self.telegram.send_typing(chat_id)
@@ -622,6 +671,14 @@ Return ONLY the intent word (nothing else):"""
         elif intent == Intent.EMAIL_INBOX:
             await self.telegram.send_typing(chat_id)
             return await self._handle_mcp_inbox(chat_id, user_id)
+
+        # Brainstorm
+        elif intent == Intent.BRAINSTORM_ADD:
+            return await self._handle_brainstorm_add(text, user_id, chat_id)
+
+        elif intent == Intent.BRAINSTORM_SHOW:
+            await self.telegram.send_typing(chat_id)
+            return await self._handle_brainstorm_show(chat_id)
 
         # Idea bouncing
         elif intent == Intent.IDEA_BOUNCE:
@@ -724,76 +781,94 @@ Just ask naturally and I'll figure out what you need!"""
     # CAPABILITY HANDLERS
     # ==================
 
-    async def _handle_todo_add(self, text: str, chat_id: int) -> Dict[str, Any]:
-        """Handle adding a todo task (or multiple tasks)."""
+    async def _handle_todo_add(self, text: str, chat_id: int, user_id: int = None) -> Dict[str, Any]:
+        """Handle adding a todo task — asks confirmation first."""
         try:
-            from todo_manager import TodoManager
-            todo_mgr = TodoManager()
+            # Extract task title
+            task_title = text
+            for prefix in ['add', 'create', 'add a task to my todo list', 'add to my agenda',
+                           'add to my todo', 'todo', 'task', 'new task', 'new todo',
+                           'add a', 'create a']:
+                if task_title.lower().startswith(prefix):
+                    task_title = task_title[len(prefix):].strip()
 
-            # Check if message contains multiple tasks
-            # Look for indicators like "Another one is", "also", "and then", etc.
-            multiple_task_indicators = [
-                'another one is', 'another is', 'also', 'and also',
-                'second one is', 'next is', 'and then', 'plus'
-            ]
+            # Strip trailing "to my todo list", "to my agenda" etc.
+            for suffix in ['to my todo list', 'to my agenda', 'to todo', 'to my todo',
+                           'to todo list', 'to agenda']:
+                if task_title.lower().endswith(suffix):
+                    task_title = task_title[:-(len(suffix))].strip()
 
-            has_multiple = any(indicator in text.lower() for indicator in multiple_task_indicators)
+            if not task_title:
+                await self.telegram.send_response(chat_id, "What task do you want to add?")
+                return {'handled': True, 'routed_to': 'todo_manager'}
 
-            if has_multiple:
-                # Split into multiple tasks
-                tasks = self._split_multiple_tasks(text)
-                task_ids = []
-                responses = []
+            # Auto-detect priority from keywords
+            priority = self._detect_priority(text, 'medium')
 
-                for task_text in tasks:
-                    # Simple extraction: remove common prefixes
-                    task_clean = task_text.strip()
-                    for prefix in ['add', 'create', 'todo', 'task', 'to my agenda', 'to my todo list']:
-                        if task_clean.lower().startswith(prefix):
-                            task_clean = task_clean[len(prefix):].strip()
+            # Check for confirmation setting
+            try:
+                from m1_config import CONFIRMATION_REQUIRED
+                needs_confirm = CONFIRMATION_REQUIRED
+            except (ImportError, AttributeError):
+                needs_confirm = True
 
-                    if task_clean:
-                        task_id = todo_mgr.add_task(
-                            title=task_clean,
-                            priority='medium',
-                            deadline=None
+            if needs_confirm and user_id:
+                # Check for duplicates first
+                from todo_manager import TodoManager
+                todo_mgr = TodoManager(user_id=user_id)
+                try:
+                    sheets = todo_mgr._get_sheets()
+                    existing = sheets.find_todo(
+                        todo_mgr._spreadsheet_id, user_id, task_title,
+                        sheet_name=todo_mgr._active_sheet
+                    )
+                    if existing:
+                        await self.telegram.send_response(
+                            chat_id,
+                            f"'{task_title}' already exists in your todo list. Still add? (yes/no)"
                         )
-                        task_ids.append(task_id)
-                        responses.append(f"• {task_clean}")
+                        # Store pending action
+                        self._init_action_registry()
+                        if self._session_state:
+                            self._session_state.set_awaiting(
+                                user_id, 'confirmation',
+                                data={
+                                    'action': 'todo_add',
+                                    'title': task_title,
+                                    'priority': priority,
+                                    'duplicate': True
+                                }
+                            )
+                        return {'handled': True, 'routed_to': 'todo_manager', 'awaiting': 'confirmation'}
+                except Exception:
+                    pass  # If duplicate check fails, proceed to normal confirmation
 
-                response = f"✓ Added {len(task_ids)} tasks to your agenda:\n" + "\n".join(responses)
-                await self.telegram.send_response(chat_id, response)
-                return {'handled': True, 'routed_to': 'todo_manager', 'task_ids': task_ids}
+                # Ask for confirmation
+                msg = f"Add '<b>{task_title}</b>' to todo list?"
+                if priority != 'medium':
+                    msg += f" (Priority: {priority})"
+                msg += "\n\n(yes/no)"
+                await self.telegram.send_response(chat_id, msg)
+
+                # Store pending action in session state
+                self._init_action_registry()
+                if self._session_state:
+                    self._session_state.set_awaiting(
+                        user_id, 'confirmation',
+                        data={
+                            'action': 'todo_add',
+                            'title': task_title,
+                            'priority': priority
+                        }
+                    )
+                return {'handled': True, 'routed_to': 'todo_manager', 'awaiting': 'confirmation'}
 
             else:
-                # Single task - use QuickCapture for better parsing
-                from quick_capture import QuickCapture
-                qc = QuickCapture()
-                task_info = qc.parse(text)
-
-                # Extract just the task part from the message
-                task_title = task_info.get('task', text)
-                # Clean up common prefixes
-                for prefix in ['add', 'create', 'add a task to my todo list', 'add to my agenda', 'add to my todo']:
-                    if task_title.lower().startswith(prefix):
-                        task_title = task_title[len(prefix):].strip()
-
-                # Auto-detect priority from keywords
-                priority = self._detect_priority(text, task_info.get('priority', 'medium'))
-
-                task_id = todo_mgr.add_task(
-                    title=task_title,
-                    priority=priority,
-                    deadline=task_info.get('deadline')
-                )
-
-                # Generate confirmation
-                response = f"✓ Added to your agenda: <b>{task_title}</b>"
-                if task_info.get('deadline'):
-                    response += f"\n📅 Due: {task_info['deadline']}"
-                if task_info.get('priority') != 'medium':
-                    response += f"\n⚡ Priority: {task_info['priority']}"
-
+                # No confirmation needed — add directly
+                from todo_manager import TodoManager
+                todo_mgr = TodoManager(user_id=user_id or 0)
+                task_id = todo_mgr.add_task(title=task_title, priority=priority)
+                response = f"Added to your agenda: <b>{task_title}</b>"
                 await self.telegram.send_response(chat_id, response)
                 return {'handled': True, 'routed_to': 'todo_manager', 'task_id': task_id}
 
@@ -925,23 +1000,29 @@ Just ask naturally and I'll figure out what you need!"""
                 if sheets2:
                     sheets2.close()
 
-            # Source 3: SQLite tasks (local)
+            # Source 3: todos_active sheet (new Sheets-based todo storage)
+            sheets3 = None
             try:
-                db = DatabaseManager()
-                sqlite_tasks = db.get_pending_tasks(limit=10)
-                for task in sqlite_tasks:
+                from m1_config import TODOS_ACTIVE_SHEET
+                sheets3 = GoogleSheetsClient(SHEETS_CREDENTIALS_PATH)
+                sheets3.connect()
+
+                active_todos = sheets3.get_todos(SPREADSHEET_ID, user_id, TODOS_ACTIVE_SHEET)
+                for todo in active_todos:
                     idx += 1
                     all_pending.append({
                         'number': idx,
-                        'title': task['title'],
-                        'source': 'local',
-                        'priority': task.get('priority', 'medium'),
-                        'notes': task.get('notes', ''),
-                        'origin': 'sqlite',
-                        'task_id': task['id'],
+                        'title': todo['title'],
+                        'source': 'todo',
+                        'priority': todo.get('priority', 'medium'),
+                        'origin': 'todos_active',
+                        'task_id': todo['id'],
                     })
             except Exception as e:
-                logger.warning(f"Could not read SQLite tasks: {e}")
+                logger.warning(f"Could not read todos_active sheet: {e}")
+            finally:
+                if sheets3:
+                    sheets3.close()
 
             # Build response
             if not all_pending:
@@ -1136,6 +1217,14 @@ Just ask naturally and I'll figure out what you need!"""
                             (task_id,)
                         )
                         conn.commit()
+
+            elif origin == 'todos_active':
+                # Complete from the new Sheets-based todo storage
+                from todo_manager import TodoManager
+                todo_mgr = TodoManager(user_id=user_id)
+                task_id = task_ref.get('task_id')
+                if task_id:
+                    todo_mgr.complete_task(task_id)
 
             elif origin in ('mcp', 'sheets'):
                 import sys
@@ -2836,6 +2925,11 @@ Just ask naturally and I'll figure out what you need!"""
                 user_id, text, stored_chat_id, stored_context
             )
 
+        if awaiting_type == "confirmation":
+            return await self._resolve_mutation_confirmation(
+                user_id, text, stored_chat_id, stored_context
+            )
+
         # Unknown awaiting type — clear and let normal flow handle it
         self._session_state.clear_awaiting(user_id)
         return None
@@ -3119,3 +3213,380 @@ Just ask naturally and I'll figure out what you need!"""
                     return True
 
         return False
+
+    # ==================
+    # CONFIRMATION FLOW
+    # ==================
+
+    async def _resolve_mutation_confirmation(
+        self, user_id: int, text: str, chat_id: int, stored_context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Handle yes/no confirmation for todo_add, brainstorm_add, etc."""
+        confirmation_words = {"yes", "confirm", "do it", "go ahead", "sure", "yeah", "yep", "ok", "okay", "y"}
+        rejection_words = {"no", "cancel", "stop", "nevermind", "nope", "don't", "n"}
+
+        text_lower = text.lower().strip()
+        action = stored_context.get('action', '')
+
+        if text_lower in confirmation_words:
+            self._session_state.clear_awaiting(user_id)
+
+            if action == 'todo_add':
+                from todo_manager import TodoManager
+                todo_mgr = TodoManager(user_id=user_id)
+                title = stored_context.get('title', '')
+                priority = stored_context.get('priority', 'medium')
+                try:
+                    task_id = todo_mgr.add_task(title=title, priority=priority)
+                    await self.telegram.send_response(
+                        chat_id, f"Added to your agenda: <b>{title}</b>"
+                    )
+                    return {'handled': True, 'routed_to': 'todo_manager', 'task_id': task_id}
+                except Exception as e:
+                    await self.telegram.send_response(chat_id, f"Error adding task: {e}")
+                    return {'handled': True, 'routed_to': 'todo_manager', 'error': str(e)}
+
+            elif action == 'brainstorm_add':
+                try:
+                    from google_docs_client import GoogleDocsClient
+                    from m1_config import BRAINSTORM_DOC_ID, SHEETS_CREDENTIALS_PATH
+                    docs_client = GoogleDocsClient(SHEETS_CREDENTIALS_PATH)
+                    idea = stored_context.get('idea', '')
+                    result = docs_client.append_brainstorm(BRAINSTORM_DOC_ID, idea)
+                    if result.get('success'):
+                        await self.telegram.send_response(chat_id, f"Added to brainstorm doc: <b>{idea}</b>")
+                    else:
+                        await self.telegram.send_response(chat_id, f"Error: {result.get('error')}")
+                    return {'handled': True, 'routed_to': 'brainstorm'}
+                except Exception as e:
+                    await self.telegram.send_response(chat_id, f"Error adding brainstorm: {e}")
+                    return {'handled': True, 'routed_to': 'brainstorm', 'error': str(e)}
+
+            elif action == 'todo_complete':
+                from todo_manager import TodoManager
+                todo_mgr = TodoManager(user_id=user_id)
+                task_id = stored_context.get('task_id', '')
+                title = stored_context.get('title', '')
+                try:
+                    todo_mgr.complete_task(task_id)
+                    await self.telegram.send_response(chat_id, f"Done: <b>{title}</b>")
+                    return {'handled': True, 'routed_to': 'todo_manager'}
+                except Exception as e:
+                    await self.telegram.send_response(chat_id, f"Error completing task: {e}")
+                    return {'handled': True, 'routed_to': 'todo_manager', 'error': str(e)}
+
+            elif action == 'email_draft':
+                # Execute the collected draft
+                collected = stored_context.get('collected', {})
+                return await self._execute_email_draft(collected, user_id, chat_id)
+
+            else:
+                await self.telegram.send_response(chat_id, "Action confirmed but not recognized.")
+                return {'handled': True, 'routed_to': 'confirmation'}
+
+        elif text_lower in rejection_words:
+            self._session_state.clear_awaiting(user_id)
+            await self.telegram.send_response(chat_id, "Canceled. What would you like to do?")
+            return {'handled': True, 'routed_to': 'confirmation', 'action': 'canceled'}
+
+        elif text_lower == 'edit' and action == 'brainstorm_add':
+            self._session_state.clear_awaiting(user_id)
+            await self.telegram.send_response(chat_id, "Send your updated idea:")
+            return {'handled': True, 'routed_to': 'brainstorm', 'awaiting': 'edit'}
+
+        else:
+            await self.telegram.send_response(chat_id, "Reply 'yes' to confirm or 'no' to cancel.")
+            return {'handled': True, 'routed_to': 'confirmation', 'awaiting': 'confirmation'}
+
+    # ==================
+    # BRAINSTORM HANDLERS
+    # ==================
+
+    async def _handle_brainstorm_add(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Handle brainstorm add — asks confirmation first."""
+        # Extract idea text
+        idea = text
+        for prefix in ['brainstorm ', 'brianstorm ', 'branstorm ', 'brain storm ', 'brainstrom ']:
+            if idea.lower().startswith(prefix):
+                idea = idea[len(prefix):].strip()
+                break
+
+        if not idea:
+            await self.telegram.send_response(chat_id, "What idea? Say 'brainstorm AI toaster'")
+            return {'handled': True, 'routed_to': 'brainstorm'}
+
+        # Ask for confirmation
+        msg = f"Add to brainstorm doc:\n'<b>{idea}</b>'?\n\n(yes/no/edit)"
+        await self.telegram.send_response(chat_id, msg)
+
+        # Store pending action
+        self._init_action_registry()
+        if self._session_state:
+            self._session_state.set_awaiting(
+                user_id, 'confirmation',
+                data={
+                    'action': 'brainstorm_add',
+                    'idea': idea
+                }
+            )
+        return {'handled': True, 'routed_to': 'brainstorm', 'awaiting': 'confirmation'}
+
+    async def _handle_brainstorm_show(self, chat_id: int) -> Dict[str, Any]:
+        """Show recent brainstorm entries."""
+        try:
+            from google_docs_client import GoogleDocsClient
+            from m1_config import BRAINSTORM_DOC_ID, SHEETS_CREDENTIALS_PATH
+            docs_client = GoogleDocsClient(SHEETS_CREDENTIALS_PATH)
+
+            result = docs_client.read_brainstorms(BRAINSTORM_DOC_ID, limit=10)
+
+            if not result.get('success'):
+                await self.telegram.send_response(chat_id, f"Error reading brainstorms: {result.get('error')}")
+                return {'handled': True, 'routed_to': 'brainstorm', 'error': result.get('error')}
+
+            entries = result.get('entries', [])
+            if not entries:
+                await self.telegram.send_response(chat_id, "No brainstorm entries yet. Say 'brainstorm [idea]' to add one.")
+                return {'handled': True, 'routed_to': 'brainstorm'}
+
+            lines = [f"<b>Recent Brainstorms</b> ({result.get('count', 0)} total)\n"]
+            for entry in entries:
+                ts = entry.get('timestamp', '')
+                idea = entry.get('idea', '')
+                if ts:
+                    lines.append(f"[{ts}] {idea}")
+                else:
+                    lines.append(f"  {idea}")
+
+            await self.telegram.send_response(chat_id, "\n".join(lines))
+            return {'handled': True, 'routed_to': 'brainstorm'}
+
+        except Exception as e:
+            logger.error(f"Error showing brainstorms: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error: {str(e)}")
+            return {'handled': True, 'routed_to': 'brainstorm', 'error': str(e)}
+
+    # ==================
+    # CLARIFICATION FLOW
+    # ==================
+
+    async def _continue_clarification(
+        self, user_id: int, text: str, chat_id: int, clarification: dict
+    ) -> Optional[Dict[str, Any]]:
+        """Continue a multi-step clarification flow."""
+        from db_manager import DatabaseManager
+        db = DatabaseManager()
+
+        missing = clarification['missing_fields']
+        collected = clarification['collected_data']
+
+        if not missing:
+            db.clear_clarification(user_id)
+            return None
+
+        # Store the answer for the current field
+        current_field = missing[0]
+        collected[current_field] = text
+        remaining = missing[1:]
+
+        if remaining:
+            # More questions needed
+            db.update_clarification(user_id, remaining, collected)
+
+            # Ask the next question
+            prompts = {
+                'subject': "What is this about? (subject)",
+                'message': "What should I say?",
+                'recipient': "Who to send to?",
+                'title': "What's the task title?",
+                'priority': "What priority? (high/medium/low)",
+            }
+            next_field = remaining[0]
+            prompt_text = prompts.get(next_field, f"Please specify {next_field}:")
+            await self.telegram.send_response(chat_id, prompt_text)
+            return {'handled': True, 'routed_to': 'clarification'}
+        else:
+            # All fields collected — show summary and ask for confirmation
+            db.clear_clarification(user_id)
+            intent = clarification['intent']
+
+            if intent == 'email_draft':
+                summary = (
+                    f"Draft email:\n"
+                    f"To: <b>{collected.get('recipient', '?')}</b>\n"
+                    f"Subject: <b>{collected.get('subject', '?')}</b>\n"
+                    f"Body: {collected.get('message', '?')[:100]}...\n\n"
+                    f"Create? (yes/no)"
+                )
+                await self.telegram.send_response(chat_id, summary)
+
+                # Store for confirmation
+                self._init_action_registry()
+                if self._session_state:
+                    self._session_state.set_awaiting(
+                        user_id, 'confirmation',
+                        data={
+                            'action': 'email_draft',
+                            'collected': collected
+                        }
+                    )
+                return {'handled': True, 'routed_to': 'clarification', 'awaiting': 'confirmation'}
+
+            else:
+                await self.telegram.send_response(chat_id, f"All info collected for {intent}. Processing...")
+                return {'handled': True, 'routed_to': 'clarification'}
+
+    def _start_email_clarification(self, user_id: int) -> None:
+        """Start the 3-step email draft clarification flow."""
+        from db_manager import DatabaseManager
+        try:
+            from m1_config import CLARIFICATION_TIMEOUT_MINUTES
+        except (ImportError, AttributeError):
+            CLARIFICATION_TIMEOUT_MINUTES = 5
+
+        db = DatabaseManager()
+        db.set_clarification(
+            user_id,
+            intent='email_draft',
+            fields=['subject', 'message', 'recipient'],
+            timeout_minutes=CLARIFICATION_TIMEOUT_MINUTES
+        )
+
+    async def _execute_email_draft(
+        self, collected: dict, user_id: int, chat_id: int
+    ) -> Dict[str, Any]:
+        """Execute a confirmed email draft from clarification data."""
+        try:
+            recipient = collected.get('recipient', '')
+            subject = collected.get('subject', '')
+            message = collected.get('message', '')
+
+            # Route to existing email processing
+            email_text = f"draft email to {recipient} about {subject} - {message}"
+            return {
+                'handled': False,
+                'routed_to': 'email_processor',
+                'reason': 'clarification_draft',
+                'parsed_message': {
+                    'recipient': recipient,
+                    'subject': subject,
+                    'instruction': message
+                }
+            }
+        except Exception as e:
+            await self.telegram.send_response(chat_id, f"Error creating draft: {e}")
+            return {'handled': True, 'routed_to': 'email_draft', 'error': str(e)}
+
+    # ==================
+    # QUEUE RESPONSE HANDLING
+    # ==================
+
+    def _is_queue_response(self, text: str) -> bool:
+        """Check if text is a response to a pending queue summary."""
+        text_lower = text.lower().strip()
+        import re
+        return bool(re.match(r'^(yes|no|review)\s+(all|\d+)', text_lower))
+
+    async def _handle_queue_response(self, user_id: int, text: str, chat_id: int) -> Dict[str, Any]:
+        """Handle responses to boot queue summary (yes 1, no 2, yes all, review 3)."""
+        import re
+        text_lower = text.lower().strip()
+
+        context = self.get_context(user_id)
+        pending_items = context.get('pending_queue', []) if context else []
+
+        if not pending_items:
+            await self.telegram.send_response(chat_id, "No pending items to respond to.")
+            return {'handled': True, 'routed_to': 'queue_response'}
+
+        # "yes all"
+        if text_lower == 'yes all':
+            results = []
+            for item in pending_items:
+                result = await self._execute_queued_item(item, user_id, chat_id)
+                results.append(result)
+
+            # Clear pending
+            if context:
+                context.pop('pending_queue', None)
+
+            response = "Executed all pending items:\n" + "\n".join(results)
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'queue_response'}
+
+        # "yes N" / "no N" / "review N"
+        match = re.match(r'(yes|no|review)\s+(\d+)', text_lower)
+        if match:
+            action = match.group(1)
+            item_num = int(match.group(2))
+
+            if item_num < 1 or item_num > len(pending_items):
+                await self.telegram.send_response(
+                    chat_id, f"No item #{item_num}. You have {len(pending_items)} pending items."
+                )
+                return {'handled': True, 'routed_to': 'queue_response'}
+
+            item = pending_items[item_num - 1]
+
+            if action == 'yes':
+                result = await self._execute_queued_item(item, user_id, chat_id)
+                pending_items.pop(item_num - 1)
+                await self.telegram.send_response(chat_id, result)
+
+            elif action == 'no':
+                pending_items.pop(item_num - 1)
+                await self.telegram.send_response(chat_id, f"Rejected item {item_num}")
+
+            elif action == 'review':
+                # Start clarification for this item
+                await self.telegram.send_response(
+                    chat_id,
+                    f"Review item {item_num}:\n"
+                    f"Original: \"{item.get('text', '')}\"\n"
+                    f"Intent: {item.get('intent', 'unknown')}\n\n"
+                    f"Reply 'yes {item_num}' to execute or 'no {item_num}' to reject."
+                )
+
+            return {'handled': True, 'routed_to': 'queue_response'}
+
+        await self.telegram.send_response(
+            chat_id, "Reply: 'yes 1', 'no 2', 'yes all', or 'review 3'"
+        )
+        return {'handled': True, 'routed_to': 'queue_response'}
+
+    async def _execute_queued_item(self, item: dict, user_id: int, chat_id: int) -> str:
+        """Execute a single queued item."""
+        intent = item.get('intent', '')
+        text = item.get('text', '')
+
+        if intent == 'todo_add':
+            from todo_manager import TodoManager
+            todo_mgr = TodoManager(user_id=user_id)
+            title = text
+            for prefix in ['add ', 'create ', 'todo ', 'task ']:
+                if title.lower().startswith(prefix):
+                    title = title[len(prefix):].strip()
+            try:
+                task_id = todo_mgr.add_task(title=title)
+                return f"Added: {title}"
+            except Exception as e:
+                return f"Error adding '{title}': {e}"
+
+        elif intent == 'brainstorm_add':
+            try:
+                from google_docs_client import GoogleDocsClient
+                from m1_config import BRAINSTORM_DOC_ID, SHEETS_CREDENTIALS_PATH
+                docs_client = GoogleDocsClient(SHEETS_CREDENTIALS_PATH)
+                idea = text
+                for prefix in ['brainstorm ', 'brianstorm ', 'branstorm ']:
+                    if idea.lower().startswith(prefix):
+                        idea = idea[len(prefix):].strip()
+                result = docs_client.append_brainstorm(BRAINSTORM_DOC_ID, idea)
+                if result.get('success'):
+                    return f"Brainstormed: {idea}"
+                return f"Error: {result.get('error')}"
+            except Exception as e:
+                return f"Error: {e}"
+
+        else:
+            return f"Queued item '{text[:30]}' (intent: {intent}) — not auto-executed"
