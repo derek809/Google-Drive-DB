@@ -1,0 +1,59 @@
+{
+  "email_patterns": [
+    {
+      "pattern_name": "invoice_processing",
+      "keywords": ["invoice", "fees", "mgmt", "q3", "q4", "quarterly"],
+      "confidence_boost": 15,
+      "action": "Route to Claude Project or Google Script",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    },
+    {
+      "pattern_name": "w9_wiring_request",
+      "keywords": ["w9", "w-9", "wiring instructions", "wire details"],
+      "confidence_boost": 20,
+      "action": "Use w9_response template",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    },
+    {
+      "pattern_name": "payment_confirmation",
+      "keywords": ["payment", "wire", "received", "ocs payment"],
+      "confidence_boost": 15,
+      "action": "Check NetSuite for confirmation / Use payment_confirmation template",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    },
+    {
+      "pattern_name": "producer_statements",
+      "keywords": ["producer statements", "producer report"],
+      "confidence_boost": 10,
+      "action": "Weekly Friday task",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    },
+    {
+      "pattern_name": "delegation_eytan",
+      "keywords": ["insufficient info", "not sure", "need eytan", "loop in eytan"],
+      "confidence_boost": 0,
+      "action": "Use delegation_eytan template",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    },
+    {
+      "pattern_name": "turnaround_expectation",
+      "keywords": ["how long", "timeline", "when", "deadline"],
+      "confidence_boost": 5,
+      "action": "Use turnaround_time template",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    },
+    {
+      "pattern_name": "journal_entry_reminder",
+      "keywords": ["je", "journal entry", "partner compensation"],
+      "confidence_boost": 0,
+      "action": "Knowledge base lookup",
+      "source": "1_Config.gs / 3_Patterns.gs"
+    }
+  ],
+  "intent_classification_patterns": {
+    "todo": ["add", "create", "new", "todo", "task", "reminder", "remind me", "agenda"],
+    "brainstorm": ["brainstorm", "brianstorm", "branstorm", "brain storm"],
+    "status": ["status", "updates", "anything new", "what's happening"],
+    "source": "conversation_manager.py / queue_processor.py"
+  }
+}

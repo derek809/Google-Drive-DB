@@ -1,0 +1,79 @@
+{
+  "workflows": {
+    "invoice_processing_pipeline": {
+      "description": "Finds an invoice, extracts data via Gemini, and drafts a confirmation email.",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "email_search",
+          "params": { "query": "{input_query}", "label": "MCP" },
+          "output_to_context": "last_email"
+        },
+        {
+          "step_id": 2,
+          "action": "sheet_create",
+          "params": { 
+            "columns": ["Vendor", "Amount", "Due Date"], 
+            "source": "it" 
+          },
+          "use_gemini": true,
+          "output_to_context": "last_sheet"
+        },
+        {
+          "step_id": 3,
+          "action": "email_draft",
+          "params": { 
+            "template_id": "payment_confirmation", 
+            "context_ref": "the sheet" 
+          }
+        }
+      ]
+    },
+    "brainstorm_to_execution": {
+      "description": "Takes a raw idea, saves it to the Master Doc, and creates follow-up tasks.",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "idea_add",
+          "params": { "text": "{user_input}" },
+          "output_to_context": "last_skill"
+        },
+        {
+          "step_id": 2,
+          "action": "idea_to_task",
+          "params": { "slug": "it" },
+          "auto_execute": true
+        },
+        {
+          "step_id": 3,
+          "action": "todo_list",
+          "params": { "filter": "recent" }
+        }
+      ]
+    },
+    "w9_request_fulfillment": {
+      "description": "Handles W9 requests by finding the email and drafting a templated reply with attachments.",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "email_search",
+          "params": { "query": "W9", "search_type": "subject" },
+          "output_to_context": "last_email"
+        },
+        {
+          "step_id": 2,
+          "action": "email_draft",
+          "params": { 
+            "template_id": "w9_response",
+            "include_attachments": ["OldCity_W9.pdf"] 
+          }
+        }
+      ]
+    }
+  },
+  "config": {
+    "max_steps": 5,
+    "context_ttl_minutes": 30,
+    "connectors": [". then", ". also", ". plus", "and then"]
+  }
+}

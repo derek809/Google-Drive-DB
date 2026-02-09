@@ -1,0 +1,538 @@
+{
+  "_metadata": {
+    "version": "1.0.0",
+    "last_updated": "2026-02-09",
+    "description": "Context awareness and entity resolution rules for Mode 4 system",
+    "author": "derek@oldcitycapital.com"
+  },
+  "pronoun_resolution": {
+    "it": {
+      "refers_to": [
+        "last_email",
+        "last_draft",
+        "last_sheet",
+        "last_idea",
+        "last_task",
+        "last_document",
+        "last_search_result"
+      ],
+      "recency_weight": 0.8,
+      "type_priority": [
+        "email",
+        "draft",
+        "document",
+        "sheet",
+        "task",
+        "idea"
+      ],
+      "max_lookback_minutes": 60,
+      "disambiguation_prompt": "Did you mean the email from {sender} or the task '{task_title}'?",
+      "context_hints": {
+        "after_email_action": [
+          "last_email",
+          "last_draft"
+        ],
+        "after_todo_action": [
+          "last_task"
+        ],
+        "after_idea_action": [
+          "last_idea"
+        ],
+        "after_search": [
+          "last_search_result"
+        ]
+      }
+    },
+    "that": {
+      "refers_to": [
+        "last_mentioned_object",
+        "last_action_result",
+        "last_email",
+        "last_idea",
+        "last_task"
+      ],
+      "recency_weight": 0.9,
+      "max_lookback_minutes": 30,
+      "type_priority": [
+        "email",
+        "idea",
+        "task",
+        "document"
+      ],
+      "requires_explicit_mention": false
+    },
+    "them": {
+      "refers_to": [
+        "last_search_results",
+        "multiple_emails",
+        "multiple_tasks"
+      ],
+      "max_items": 10,
+      "type": "plural",
+      "recency_weight": 0.7,
+      "disambiguation_required": true
+    },
+    "this": {
+      "refers_to": [
+        "current_conversation_topic",
+        "last_user_message",
+        "most_recent_object"
+      ],
+      "recency_weight": 0.95,
+      "max_lookback_minutes": 15,
+      "prefers_immediate_context": true
+    },
+    "these": {
+      "refers_to": [
+        "recent_group",
+        "last_search_results",
+        "current_list"
+      ],
+      "max_items": 10,
+      "type": "plural",
+      "recency_weight": 0.85
+    },
+    "he_she": {
+      "refers_to": [
+        "last_person_mentioned",
+        "email_sender",
+        "contact"
+      ],
+      "recency_weight": 0.9,
+      "requires_gender_context": false,
+      "fallback_to_name": true,
+      "max_lookback_minutes": 45
+    }
+  },
+  "entity_resolution": {
+    "recipient": {
+      "sources": [
+        "explicit_mention",
+        "reply_context",
+        "last_email_sender",
+        "conversation_context",
+        "contact_lookup",
+        "role_lookup"
+      ],
+      "priority": "explicit_mention",
+      "validation": {
+        "email_format": "^[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\\.[a-zA-Z0-9-.]+$",
+        "must_exist_in_contacts": false,
+        "auto_save_new_contacts": true
+      },
+      "remember_for_minutes": 60,
+      "disambiguation_threshold": 0.7,
+      "fuzzy_match_enabled": true,
+      "aliases": {
+        "tom": "tom.smith@oldcitycapital.com",
+        "george": "george@oldcitycapital.com",
+        "becky": "becky.spiess@oldcitycapital.com",
+        "the boss": "tom.smith@oldcitycapital.com",
+        "compliance": "george@oldcitycapital.com"
+      }
+    },
+    "task_id": {
+      "sources": [
+        "explicit_number",
+        "last_mentioned_task",
+        "numbered_reference",
+        "current_todo_context"
+      ],
+      "pattern": "^\\d+$",
+      "priority": "explicit_number",
+      "remember_for_minutes": 30,
+      "context_hints": {
+        "after_todo_list": "use_from_list",
+        "after_todo_add": "use_just_created"
+      }
+    },
+    "idea_slug": {
+      "sources": [
+        "explicit_slug",
+        "last_mentioned_idea",
+        "partial_match",
+        "keyword_search"
+      ],
+      "pattern": "^[a-z0-9-]+$",
+      "priority": "explicit_slug",
+      "fuzzy_match_enabled": true,
+      "fuzzy_threshold": 0.8,
+      "remember_for_minutes": 45,
+      "context_hints": {
+        "after_idea_add": "use_just_created",
+        "after_idea_search": "use_from_results"
+      }
+    },
+    "email_reference": {
+      "sources": [
+        "explicit_subject",
+        "sender_name",
+        "thread_id",
+        "last_email_opened",
+        "numbered_search_result",
+        "recent_summary"
+      ],
+      "priority": "explicit_subject",
+      "remember_for_minutes": 60,
+      "fuzzy_match_enabled": true,
+      "context_hints": {
+        "after_email_search": "use_from_search_results",
+        "after_email_summarize": "use_summarized_thread"
+      }
+    },
+    "date": {
+      "sources": [
+        "explicit_date",
+        "relative_date",
+        "contextual_date",
+        "implied_date"
+      ],
+      "parsers": [
+        "dateutil",
+        "relative_time",
+        "natural_language"
+      ],
+      "default_time": "09:00:00",
+      "timezone": "America/New_York",
+      "priority": "explicit_date",
+      "relative_patterns": {
+        "today": "0d",
+        "tomorrow": "+1d",
+        "next week": "+7d",
+        "friday": "next_friday",
+        "end of month": "last_day_of_month",
+        "next monday": "next_monday"
+      },
+      "contextual_inference": {
+        "morning": "09:00",
+        "afternoon": "14:00",
+        "evening": "17:00",
+        "eod": "17:00",
+        "eow": "friday_17:00"
+      }
+    },
+    "mandate_id": {
+      "sources": [
+        "explicit_mention",
+        "last_mentioned_mandate",
+        "current_topic",
+        "email_subject_extraction"
+      ],
+      "pattern": "^MND-\\d{4}$",
+      "priority": "explicit_mention",
+      "remember_for_minutes": 90,
+      "auto_extract_from": [
+        "email_subject",
+        "email_body",
+        "task_title"
+      ],
+      "validation": {
+        "must_match_pattern": true,
+        "check_portal_exists": false
+      }
+    },
+    "amount": {
+      "sources": [
+        "explicit_number",
+        "currency_mention",
+        "calculation_result"
+      ],
+      "parsers": [
+        "currency",
+        "number",
+        "calculation"
+      ],
+      "default_currency": "USD",
+      "patterns": {
+        "with_symbol": "\\$[0-9,]+\\.?[0-9]*",
+        "with_word": "[0-9,]+\\s*(dollars|usd|bucks)",
+        "plain_number": "[0-9,]+\\.?[0-9]*"
+      },
+      "remember_for_minutes": 20
+    },
+    "priority": {
+      "sources": [
+        "explicit_mention",
+        "urgency_keywords",
+        "implied_priority"
+      ],
+      "allowed_values": [
+        "high",
+        "medium",
+        "low"
+      ],
+      "default": "medium",
+      "keyword_mapping": {
+        "urgent": "high",
+        "asap": "high",
+        "important": "high",
+        "whenever": "low",
+        "no rush": "low",
+        "routine": "medium"
+      },
+      "remember_for_minutes": 15
+    }
+  },
+  "context_persistence": {
+    "conversation_ttl_minutes": 60,
+    "entity_stack_size": 10,
+    "topic_stack_size": 5,
+    "search_results_ttl_minutes": 30,
+    "draft_context_ttl_minutes": 120,
+    "retention": {
+      "short_term": {
+        "duration_minutes": 15,
+        "entities": [
+          "recipient",
+          "date",
+          "priority",
+          "amount"
+        ]
+      },
+      "medium_term": {
+        "duration_minutes": 60,
+        "entities": [
+          "email_reference",
+          "task_id",
+          "idea_slug",
+          "mandate_id"
+        ]
+      },
+      "long_term": {
+        "duration_minutes": 240,
+        "entities": [
+          "contact_preferences",
+          "workflow_state",
+          "user_patterns"
+        ]
+      }
+    },
+    "auto_forget": [
+      "passwords",
+      "ssn",
+      "credit_card",
+      "bank_account",
+      "api_keys",
+      "auth_tokens"
+    ],
+    "always_remember": [
+      "user_name",
+      "user_email",
+      "user_timezone",
+      "frequent_contacts"
+    ],
+    "clear_on_topic_change": true,
+    "topic_change_threshold": 0.6
+  },
+  "context_stacks": {
+    "object_stack": {
+      "max_size": 10,
+      "track_types": [
+        "email",
+        "task",
+        "idea",
+        "document",
+        "contact"
+      ],
+      "push_on": [
+        "action_complete",
+        "object_created",
+        "search_result"
+      ],
+      "pop_on_explicit_clear": true,
+      "ttl_minutes": 60
+    },
+    "action_stack": {
+      "max_size": 20,
+      "track_types": [
+        "email_draft",
+        "todo_add",
+        "idea_add",
+        "todo_complete"
+      ],
+      "enables_undo": true,
+      "ttl_minutes": 30
+    },
+    "search_result_stack": {
+      "max_size": 50,
+      "group_by": "search_query",
+      "numbered_references": true,
+      "ttl_minutes": 30,
+      "clear_on_new_search": false
+    },
+    "topic_stack": {
+      "max_size": 5,
+      "tracks": [
+        "current_mandate",
+        "current_rr",
+        "current_project"
+      ],
+      "auto_detect": true,
+      "ttl_minutes": 120
+    }
+  },
+  "disambiguation_rules": {
+    "when_multiple_matches": {
+      "strategy": "ask_user",
+      "max_options_to_show": 5,
+      "auto_select_if_confidence": 0.95,
+      "prompt_template": "I found {count} matches. Did you mean:\n{options}",
+      "timeout_seconds": 60,
+      "default_on_timeout": "use_most_recent"
+    },
+    "when_ambiguous_pronoun": {
+      "strategy": "use_context_hints",
+      "fallback": "ask_user",
+      "confidence_threshold": 0.7
+    },
+    "when_missing_entity": {
+      "strategy": "infer_from_context",
+      "fallback": "ask_user",
+      "required_entities": {
+        "email_draft": [
+          "recipient"
+        ],
+        "todo_add": [
+          "title"
+        ],
+        "idea_add": [
+          "content"
+        ]
+      }
+    }
+  },
+  "context_inference": {
+    "reply_intent_detection": {
+      "enabled": true,
+      "triggers": [
+        "reply",
+        "respond",
+        "answer"
+      ],
+      "auto_resolve_recipient": true,
+      "auto_load_thread": true
+    },
+    "follow_up_detection": {
+      "enabled": true,
+      "patterns": [
+        "follow up on {topic}",
+        "check in about {topic}",
+        "any update on {topic}"
+      ],
+      "auto_search_related": true,
+      "lookback_days": 7
+    },
+    "continuation_detection": {
+      "enabled": true,
+      "triggers": [
+        "also",
+        "and",
+        "plus",
+        "additionally"
+      ],
+      "maintains_context": true,
+      "continues_action_chain": true
+    },
+    "correction_detection": {
+      "enabled": true,
+      "triggers": [
+        "actually",
+        "no",
+        "wait",
+        "correction",
+        "i meant"
+      ],
+      "triggers_undo": true,
+      "preserves_rest_of_context": true
+    }
+  },
+  "learning_patterns": {
+    "user_preferences": {
+      "track_preferred_phrasings": true,
+      "track_common_recipients": true,
+      "track_task_patterns": true,
+      "track_idea_categories": true,
+      "learn_from_corrections": true
+    },
+    "entity_associations": {
+      "mandate_to_rr": true,
+      "rr_to_email": true,
+      "task_to_project": true,
+      "idea_to_category": true
+    },
+    "workflow_patterns": {
+      "detect_common_sequences": true,
+      "suggest_automation": true,
+      "learn_timing_preferences": true
+    }
+  },
+  "cross_domain_linking": {
+    "email_to_task": {
+      "enabled": true,
+      "auto_detect_action_items": true,
+      "suggest_task_creation": true
+    },
+    "idea_to_task": {
+      "enabled": true,
+      "track_idea_execution": true
+    },
+    "email_to_idea": {
+      "enabled": true,
+      "suggest_idea_capture": true
+    },
+    "task_to_email": {
+      "enabled": true,
+      "suggest_status_updates": true
+    }
+  },
+  "conversation_state": {
+    "awaiting_confirmation": {
+      "timeout_minutes": 30,
+      "reminder_after_minutes": 10,
+      "default_action": "cancel"
+    },
+    "multi_turn_collection": {
+      "enabled": true,
+      "max_turns": 5,
+      "timeout_minutes": 15
+    },
+    "workflow_in_progress": {
+      "persist_across_sessions": true,
+      "allow_interruption": true,
+      "resume_prompt": "You have a {workflow_name} in progress. Continue?"
+    }
+  },
+  "special_contexts": {
+    "compliance_mode": {
+      "triggered_by": [
+        "mandate",
+        "finra",
+        "compliance",
+        "regulatory"
+      ],
+      "extra_caution": true,
+      "requires_confirmation": true,
+      "audit_trail": true
+    },
+    "finance_mode": {
+      "triggered_by": [
+        "invoice",
+        "payment",
+        "fee",
+        "amount"
+      ],
+      "validates_calculations": true,
+      "tracks_amounts": true
+    },
+    "onboarding_mode": {
+      "triggered_by": [
+        "new rr",
+        "onboard",
+        "setup"
+      ],
+      "loads_checklist_context": true,
+      "tracks_completion": true
+    }
+  }
+}
+

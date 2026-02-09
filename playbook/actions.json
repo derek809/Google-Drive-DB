@@ -1,0 +1,97 @@
+{
+  "email_summarize": {
+    "action_class": "ThreadSynthesizer",
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "progress_updates": ["Fetching thread history...", "Synthesizing 'State of Play' summary..."],
+    "context_needed": ["thread_history"],
+    "timeout_seconds": 15
+  },
+  "email_draft": {
+    "action_class": "EmailDraftAction",
+    "requires_confirmation": true,
+    "confirmation_message": "Save this draft for {recipient}?",
+    "risk_level": "medium",
+    "progress_updates": ["Searching Gmail...", "Matching patterns...", "Ollama is drafting..."],
+    "context_linker_enabled": true,
+    "timeout_seconds": 30
+  },
+  "email_extract_contacts": {
+    "action_class": "ContactLearner",
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "progress_updates": ["Parsing participants...", "Updating Contacts sheet..."],
+    "context_needed": ["thread_history"],
+    "timeout_seconds": 10
+  },
+  "todo_list": {
+    "action_class": "TodoManager",
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "progress_updates": ["Accessing Google Sheets...", "Sorting by priority..."],
+    "context_needed": ["active_tasks"],
+    "timeout_seconds": 10
+  },
+  "todo_complete": {
+    "action_class": "TodoManager",
+    "requires_confirmation": true,
+    "confirmation_message": "Mark task #{task_id} as finished?",
+    "risk_level": "low",
+    "allows_undo": true,
+    "progress_updates": ["Updating Sheets...", "Moving to history tab..."],
+    "timeout_seconds": 10
+  },
+  "todo_add": {
+    "action_class": "TodoManager",
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "progress_updates": ["Appending to Google Sheet..."],
+    "timeout_seconds": 10
+  },
+  "idea_add": {
+    "action_class": "SkillManager",
+    "requires_confirmation": true,
+    "confirmation_message": "Add this thought to your Brainstorm Doc?",
+    "risk_level": "low",
+    "progress_updates": ["Generating slug...", "Appending to Google Doc..."],
+    "timeout_seconds": 20
+  },
+  "idea_to_email": {
+    "action_class": "WorkflowManager",
+    "requires_confirmation": true,
+    "confirmation_message": "Convert idea '{slug}' into an email draft?",
+    "risk_level": "medium",
+    "progress_updates": ["Fetching idea content...", "Formatting for recipient...", "Drafting..."],
+    "context_needed": ["last_skill"],
+    "timeout_seconds": 30
+  },
+  "idea_to_task": {
+    "action_class": "SkillManager",
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "progress_updates": ["Extracting action items...", "Creating tasks..."],
+    "timeout_seconds": 15
+  },
+  "idea_delete": {
+    "action_class": "SkillManager",
+    "requires_confirmation": true,
+    "confirmation_message": "Permanently delete idea '{slug}'? This cannot be undone.",
+    "risk_level": "high",
+    "audit_required": true,
+    "timeout_seconds": 10
+  },
+  "proactive_suggest": {
+    "action_class": "ProactiveEngine",
+    "requires_confirmation": false,
+    "risk_level": "low",
+    "progress_updates": ["Analyzing workspace state...", "Finding gaps..."],
+    "timeout_seconds": 20
+  },
+  "undo_last": {
+    "action_class": "SystemOrchestrator",
+    "requires_confirmation": true,
+    "confirmation_message": "Revert the last action?",
+    "risk_level": "medium",
+    "timeout_seconds": 10
+  }
+}
