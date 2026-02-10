@@ -1,0 +1,97 @@
+{
+"email_personality": {
+"tone": "Professional, efficient, and slightly casual. Direct but polite, avoiding unnecessary corporate fluff.",
+"common_phrases": [
+"Just wanted to make sure...",
+"Please find attached",
+"Looping in [Name] for his input",
+"Let me know if you need anything else!",
+"Confirmed - we received payment",
+"Here's our W9 form",
+"No rush on this request but...",
+"Our typical turnaround is...",
+"Happy Friday!",
+"Have a great day!",
+"Thanks,"
+],
+"greeting_style": "Informal but professional. Almost exclusively 'Hi [Name],' in templates.",
+"closing_style": "Concise standard sign-offs. predominantly 'Best, Derek' or 'Thanks, Derek'.",
+"formality_level": 6,
+"humor_sarcasm_level": 3,
+"directness_level": 8,
+"length_preference": "Short and to-the-point. Templates focus on delivering the specific asset (W9, confirmation) immediately.",
+"sentence_structure": "Simple and clear. Uses short declarative sentences. Often breaks distinct thoughts into separate lines.",
+"paragraph_structure": "Multi-paragraph but very airy. Uses frequent line breaks to separate greeting, core message, call to action, and sign-off.",
+"question_asking_style": "Direct and functional. e.g., 'Let me know if you need anything else!' or asking regarding specific timelines.",
+"problem_communication_style": "Delegative and transparent. Uses 'Looping in [Name]' to escalate or bring in expertise when unsure.",
+"urgency_indicators": [
+"Just wanted to make sure",
+"Confirmed",
+"Need Eytan's input"
+],
+"empathy_markers": [
+"No rush on this request but...",
+"Let me know if you need it sooner",
+"Happy Friday!",
+"Have a great day!"
+],
+"use_of_formatting": {
+"bold_emphasis": "rarely",
+"bullet_points": "sometimes",
+"numbered_lists": "rarely",
+"line_breaks": "frequently"
+},
+"attachment_language": "Direct reference. 'Here's our W9 form (attached)' or 'Please find attached...'",
+"key_traits": [
+"Efficient",
+"Responsive",
+"Collaborative",
+"Action-oriented",
+"Process-driven",
+"Concise"
+],
+"recipient_adaptation": {
+"to_executives": "Concise, formal, bullet points preferred (e.g., Tom Smith).",
+"to_registered_reps": "Supportive and guiding.",
+"to_external_partners": "Professional and transaction-focused (e.g., sending W9s, confirming payments).",
+"to_peers": "Friendly, detailed, conversational (e.g., Mike Riskind)."
+},
+"follow_up_patterns": "Polite persistence. Uses phrases like 'Just wanted to make sure...' or 'Following up on...'",
+"avoidances": [
+"Excessive pleasantries",
+"Long paragraphs",
+"Ambiguity",
+"Compliance violations (FINRA/SEC keywords)",
+"Over-apologizing",
+"Complex sentence structures"
+]
+},
+"context_patterns": {
+"mandate_reviews": "Timeline-focused. Sets expectations with 'Our typical turnaround is...' and 'I'll have this back to you by...'.",
+"onboarding_communications": "Process-oriented. Likely involves checklists or sequence of required documents.",
+"financial_matters": "Extremely direct. 'Confirmed - we received payment of [Amount]'. 'Please invoice'.",
+"compliance_issues": "Strict avoidance. FINRA/SEC topics are escalated or handled manually, never auto-drafted.",
+"troubleshooting": "Delegative. 'Looping in Eytan for his input on this' when context is insufficient."
+},
+"statistical_insights": {
+"total_emails_analyzed": 97,
+"date_range": "Recent history (based on analysis referenced in documentation)",
+"most_frequent_recipients": [
+"Tom Smith",
+"Mike Riskind",
+"George",
+"Eytan",
+"Chris",
+"Terry"
+],
+"average_email_length": "30-60 words",
+"most_common_subjects": [
+"W9 Request",
+"Invoice for [Period]",
+"Payment Confirmation",
+"Producer Statements",
+"Mandate Review"
+]
+},
+"confidence": 0.85
+}
