@@ -1,0 +1,765 @@
+2026-02-09 23:45:55,974 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-09 23:45:55,979 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-09 23:45:55,979 - __main__ - ERROR - Configuration error: TELEGRAM_BOT_TOKEN not configured (set in .env or environment)
+2026-02-09 23:45:55,980 - __main__ - ERROR - Configuration error: TELEGRAM_ALLOWED_USERS is empty - bot will respond to no one
+2026-02-09 23:45:55,980 - __main__ - ERROR - Configuration error: SPREADSHEET_ID not configured (set in .env)
+2026-02-09 23:45:55,980 - __main__ - ERROR - Configuration error: Sheets credentials not found: /Users/work/Telgram bot/core/credentials/sheets_service_account.json
+2026-02-09 23:45:55,980 - __main__ - ERROR - Configuration error: Gmail credentials not found: /Users/work/Telgram bot/core/credentials/gmail_credentials.json
+2026-02-09 23:45:55,980 - __main__ - ERROR - Configuration error: ANTHROPIC_API_KEY not set - Claude API unavailable (non-critical)
+2026-02-09 23:45:55,980 - __main__ - ERROR - Configuration error: GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)
+2026-02-09 23:47:53,890 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-09 23:47:53,894 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: TELEGRAM_BOT_TOKEN not configured (set in .env or environment)
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: TELEGRAM_ALLOWED_USERS is empty - bot will respond to no one
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: SPREADSHEET_ID not configured (set in .env)
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: Sheets credentials not found: /Users/work/Telgram bot/core/credentials/sheets_service_account.json
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: Gmail credentials not found: /Users/work/Telgram bot/core/credentials/gmail_credentials.json
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: ANTHROPIC_API_KEY not set - Claude API unavailable (non-critical)
+2026-02-09 23:47:53,894 - __main__ - ERROR - Configuration error: GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)
+2026-02-09 23:55:06,787 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-09 23:55:06,793 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-09 23:55:06,794 - __main__ - ERROR - Configuration error: TELEGRAM_BOT_TOKEN not configured (set in .env or environment)
+2026-02-09 23:55:06,794 - __main__ - ERROR - Configuration error: TELEGRAM_ALLOWED_USERS is empty - bot will respond to no one
+2026-02-09 23:55:06,794 - __main__ - ERROR - Configuration error: SPREADSHEET_ID not configured (set in .env)
+2026-02-09 23:55:06,794 - __main__ - ERROR - Configuration error: ANTHROPIC_API_KEY not set - Claude API unavailable (non-critical)
+2026-02-09 23:55:06,794 - __main__ - ERROR - Configuration error: GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)
+2026-02-10 00:22:20,614 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 00:22:20,621 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 00:22:20,621 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 00:22:20,621 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 00:22:20,621 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 00:22:20,621 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 00:22:20,621 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 00:22:20,622 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 00:22:20,626 - __main__ - INFO - Database manager initialized
+2026-02-10 00:22:20,628 - __main__ - INFO - Database initialized
+2026-02-10 00:22:20,628 - __main__ - INFO - Checking for queued messages...
+2026-02-10 00:22:20,628 - __main__ - INFO - Queue processor initialized
+2026-02-10 00:22:20,630 - __main__ - INFO - No pending messages in queue
+2026-02-10 00:22:20,716 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.actions'
+2026-02-10 00:22:20,716 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 00:22:20,716 - __main__ - INFO - Telegram handler initialized
+2026-02-10 00:22:20,775 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 00:22:21,472 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 00:22:21,472 - telegram.ext.Application - INFO - Application started
+2026-02-10 00:22:21,904 - telegram_handler - INFO - Message from 8550533554: hi
+2026-02-10 00:22:22,378 - conversation_manager - ERROR - [ACTION_REGISTRY] Failed to initialize: No module named 'core.actions'
+Traceback (most recent call last):
+  File "/Users/work/Telgram bot/brain/conversation_manager.py", line 150, in _init_action_registry
+    from core.actions import ACTIONS, get_action_schema, get_action_name
+  File "/Users/work/Telgram bot/core/__init__.py", line 9, in <module>
+    from core.actions import (
+ModuleNotFoundError: No module named 'core.actions'
+2026-02-10 00:22:22,837 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 00:22:22,839 - __main__ - INFO - Gmail client initialized
+2026-02-10 00:22:22,874 - __main__ - INFO - Ollama client initialized
+2026-02-10 00:22:22,874 - conversation_manager - ERROR - Error checking active workflow: Anthropic package not installed. Run:
+pip install anthropic
+Traceback (most recent call last):
+  File "/Users/work/Telgram bot/brain/conversation_manager.py", line 2407, in _check_active_workflow
+    claude_client=self.processor.claude if self.processor else None
+                  ^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/work/Telgram bot/core/mode4_processor.py", line 237, in claude
+    self._claude = ClaudeClient()
+                   ^^^^^^^^^^^^^^
+  File "/Users/work/Telgram bot/LLM/claude_client.py", line 61, in __init__
+    raise ClaudeClientError(
+claude_client.ClaudeClientError: Anthropic package not installed. Run:
+pip install anthropic
+2026-02-10 00:22:22,875 - conversation_manager - INFO - Classified intent: greeting for message: hi
+2026-02-10 00:22:23,123 - telegram_handler - INFO - Message handled by conversation manager: greeting
+2026-02-10 00:33:15,763 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 00:33:15,765 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 00:33:15,776 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 00:34:04,012 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 00:34:04,017 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 00:34:04,017 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 00:34:04,017 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 00:34:04,017 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 00:34:04,018 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 00:34:04,018 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 00:34:04,018 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 00:34:04,022 - __main__ - INFO - Database manager initialized
+2026-02-10 00:34:04,024 - __main__ - INFO - Database initialized
+2026-02-10 00:34:04,024 - __main__ - INFO - Checking for queued messages...
+2026-02-10 00:34:04,024 - __main__ - INFO - Queue processor initialized
+2026-02-10 00:34:04,025 - __main__ - INFO - No pending messages in queue
+2026-02-10 00:34:04,087 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.action_extractor'
+2026-02-10 00:34:04,087 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 00:34:04,088 - __main__ - INFO - Telegram handler initialized
+2026-02-10 00:34:04,141 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 00:34:04,606 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 00:34:04,606 - telegram.ext.Application - INFO - Application started
+2026-02-10 00:50:42,018 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 00:50:42,020 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 00:50:42,031 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 00:51:02,198 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 00:51:02,202 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 00:51:02,202 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 00:51:02,203 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 00:51:02,203 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 00:51:02,203 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 00:51:02,203 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 00:51:02,203 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 00:51:02,207 - __main__ - INFO - Database manager initialized
+2026-02-10 00:51:02,207 - __main__ - INFO - Database initialized
+2026-02-10 00:51:02,208 - __main__ - INFO - Checking for queued messages...
+2026-02-10 00:51:02,208 - __main__ - INFO - Queue processor initialized
+2026-02-10 00:51:02,209 - __main__ - INFO - No pending messages in queue
+2026-02-10 00:51:02,273 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.action_validator'
+2026-02-10 00:51:02,273 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 00:51:02,273 - __main__ - INFO - Telegram handler initialized
+2026-02-10 00:51:02,328 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 00:51:02,858 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 00:51:02,858 - telegram.ext.Application - INFO - Application started
+2026-02-10 00:51:45,105 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 00:51:45,107 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 00:51:45,118 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 00:51:55,849 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 00:51:55,853 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 00:51:55,853 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 00:51:55,853 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 00:51:55,853 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 00:51:55,853 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 00:51:55,853 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 00:51:55,854 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 00:51:55,857 - __main__ - INFO - Database manager initialized
+2026-02-10 00:51:55,858 - __main__ - INFO - Database initialized
+2026-02-10 00:51:55,858 - __main__ - INFO - Checking for queued messages...
+2026-02-10 00:51:55,858 - __main__ - INFO - Queue processor initialized
+2026-02-10 00:51:55,859 - __main__ - INFO - No pending messages in queue
+2026-02-10 00:51:55,907 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.session_state'
+2026-02-10 00:51:55,907 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 00:51:55,907 - __main__ - INFO - Telegram handler initialized
+2026-02-10 00:51:55,945 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 00:51:56,465 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 00:51:56,466 - telegram.ext.Application - INFO - Application started
+2026-02-10 00:56:07,543 - telegram_handler - ERROR - Update None caused error httpx.ReadError: 
+2026-02-10 01:09:00,918 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 01:09:00,920 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 01:09:00,931 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 01:09:23,696 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:09:23,701 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:09:23,701 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:09:23,701 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:09:23,701 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:09:23,702 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:09:23,702 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:09:23,702 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:09:23,705 - __main__ - INFO - Database manager initialized
+2026-02-10 01:09:23,706 - __main__ - INFO - Database initialized
+2026-02-10 01:09:23,706 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:09:23,706 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:09:23,708 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:09:23,774 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.context_manager'
+2026-02-10 01:09:23,774 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:09:23,774 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:09:23,827 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:09:24,343 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:09:24,343 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:10:23,454 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 01:10:23,455 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 01:10:23,466 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 01:11:15,447 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:11:15,451 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:11:15,452 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:11:15,452 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:11:15,452 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:11:15,452 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:11:15,452 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:11:15,452 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:11:15,456 - __main__ - INFO - Database manager initialized
+2026-02-10 01:11:15,457 - __main__ - INFO - Database initialized
+2026-02-10 01:11:15,457 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:11:15,457 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:11:15,459 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:11:15,526 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.context_manager'
+2026-02-10 01:11:15,526 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:11:15,527 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:11:15,594 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:11:16,767 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:11:16,767 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:15:50,433 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 01:15:50,434 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 01:15:50,445 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 01:15:55,471 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:15:55,475 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:15:55,476 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:15:55,476 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:15:55,476 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:15:55,476 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:15:55,476 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:15:55,476 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:15:55,480 - __main__ - INFO - Database manager initialized
+2026-02-10 01:15:55,481 - __main__ - INFO - Database initialized
+2026-02-10 01:15:55,481 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:15:55,481 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:15:55,483 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:15:55,551 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.InputOutput.notification_router.py'; 'core.InputOutput.notification_router' is not a package
+2026-02-10 01:15:55,551 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:15:55,551 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:15:55,603 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:15:57,156 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:15:57,156 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:22:14,046 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 01:22:14,048 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 01:22:14,058 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 01:24:19,218 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:24:19,223 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:24:19,223 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:24:19,223 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:24:19,223 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:24:19,224 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:24:19,224 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:24:19,224 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:24:19,228 - __main__ - INFO - Database manager initialized
+2026-02-10 01:24:19,229 - __main__ - INFO - Database initialized
+2026-02-10 01:24:19,229 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:24:19,229 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:24:19,230 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:24:19,295 - conversation_manager - WARNING - [INTENT_TREE] Could not load IntentClassifier: No module named 'core.InputOutput.notification_router.py'; 'core.InputOutput.notification_router' is not a package
+2026-02-10 01:24:19,295 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:24:19,295 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:24:19,350 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:24:20,394 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:24:20,394 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:30:31,108 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 01:30:31,110 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 01:30:31,120 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 01:30:34,231 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:30:34,236 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:30:34,236 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:30:34,236 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:30:34,236 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:30:34,236 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:30:34,236 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:30:34,236 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:30:34,242 - __main__ - INFO - Database manager initialized
+2026-02-10 01:30:34,243 - __main__ - INFO - Database initialized
+2026-02-10 01:30:34,243 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:30:34,243 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:30:34,244 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:30:34,314 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 01:30:34,321 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 01:30:34,321 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 01:30:34,321 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:30:34,321 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:30:34,375 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:30:34,913 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:30:34,913 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:52:40,179 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:52:40,184 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:52:40,184 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:52:40,185 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:52:40,185 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:52:40,185 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:52:40,185 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:52:40,185 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:52:40,189 - __main__ - INFO - Database manager initialized
+2026-02-10 01:52:40,189 - __main__ - INFO - Database initialized
+2026-02-10 01:52:40,190 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:52:40,190 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:52:40,191 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:52:40,255 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 01:52:40,257 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 01:52:40,257 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 01:52:40,257 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:52:40,257 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:52:40,309 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:52:40,845 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:52:40,846 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:52:47,796 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:52:47,800 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:52:47,800 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:52:47,800 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:52:47,800 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:52:47,800 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:52:47,800 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:52:47,801 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:52:47,802 - __main__ - INFO - Database manager initialized
+2026-02-10 01:52:47,803 - __main__ - INFO - Database initialized
+2026-02-10 01:52:47,803 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:52:47,803 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:52:47,804 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:52:47,865 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 01:52:47,866 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 01:52:47,867 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 01:52:47,867 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:52:47,867 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:52:47,918 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:52:48,465 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:52:48,465 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:52:48,823 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:52:52,947 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:52:54,071 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:52:58,860 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:00,482 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:05,862 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:08,254 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:11,758 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:15,266 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:20,886 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:26,342 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:34,351 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:39,634 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 01:53:39,639 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 01:53:39,639 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 01:53:39,639 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 01:53:39,639 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 01:53:39,639 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 01:53:39,639 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 01:53:39,639 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 01:53:39,643 - __main__ - INFO - Database manager initialized
+2026-02-10 01:53:39,643 - __main__ - INFO - Database initialized
+2026-02-10 01:53:39,644 - __main__ - INFO - Checking for queued messages...
+2026-02-10 01:53:39,644 - __main__ - INFO - Queue processor initialized
+2026-02-10 01:53:39,645 - __main__ - INFO - No pending messages in queue
+2026-02-10 01:53:39,709 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 01:53:39,710 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 01:53:39,710 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 01:53:39,710 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 01:53:39,710 - __main__ - INFO - Telegram handler initialized
+2026-02-10 01:53:39,763 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 01:53:40,316 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 01:53:40,316 - telegram.ext.Application - INFO - Application started
+2026-02-10 01:53:40,717 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:45,345 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:46,479 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:49,893 - telegram_handler - INFO - Message from 8550533554: Hi
+2026-02-10 01:53:50,500 - __main__ - INFO - Ollama client initialized
+2026-02-10 01:53:50,529 - __main__ - INFO - Claude client initialized
+2026-02-10 01:53:50,531 - conversation_manager - INFO - [ACTION_REGISTRY] AmbiguityResolver initialized
+2026-02-10 01:53:50,532 - conversation_manager - INFO - [ACTION_REGISTRY] ConversationStateMachine initialized
+2026-02-10 01:53:50,532 - conversation_manager - INFO - [ACTION_REGISTRY] Initialized successfully
+2026-02-10 01:53:50,845 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 01:53:50,847 - __main__ - INFO - Gmail client initialized
+2026-02-10 01:53:50,847 - conversation_manager - INFO - Classified intent: greeting for message: Hi
+2026-02-10 01:53:51,120 - telegram_handler - INFO - Message handled by conversation manager: greeting
+2026-02-10 01:53:52,548 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:56,816 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:53:58,476 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:03,171 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:14,396 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:18,522 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:20,672 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:21,570 - telegram_handler - INFO - Message from 8550533554: Show me my todo
+2026-02-10 01:54:22,052 - __main__ - INFO - Ollama client initialized
+2026-02-10 01:54:22,081 - __main__ - INFO - Claude client initialized
+2026-02-10 01:54:22,081 - conversation_manager - INFO - [ACTION_REGISTRY] AmbiguityResolver initialized
+2026-02-10 01:54:22,082 - conversation_manager - INFO - [ACTION_REGISTRY] ConversationStateMachine initialized
+2026-02-10 01:54:22,082 - conversation_manager - INFO - [ACTION_REGISTRY] Initialized successfully
+2026-02-10 01:54:22,091 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 01:54:22,093 - __main__ - INFO - Gmail client initialized
+2026-02-10 01:54:22,094 - conversation_manager - INFO - Classified intent: todo_list for message: Show me my todo
+2026-02-10 01:54:22,094 - conversation_manager - INFO - [ACTION_REGISTRY] Processing action: todo_list
+2026-02-10 01:54:22,214 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 01:54:40,491 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:54:40,519 - conversation_manager - INFO - [ACTION_REGISTRY] Extraction: params={}, missing=[], conf=0.00, reason=LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:54:40,530 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:41,073 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:54:41,697 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:45,828 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:47,253 - telegram_handler - INFO - Message from 8550533554: Yes
+2026-02-10 01:54:47,487 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:47,578 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:47,801 - __main__ - INFO - Ollama client initialized
+2026-02-10 01:54:47,832 - __main__ - INFO - Claude client initialized
+2026-02-10 01:54:47,833 - conversation_manager - INFO - [ACTION_REGISTRY] AmbiguityResolver initialized
+2026-02-10 01:54:47,834 - conversation_manager - INFO - [ACTION_REGISTRY] ConversationStateMachine initialized
+2026-02-10 01:54:47,834 - conversation_manager - INFO - [ACTION_REGISTRY] Initialized successfully
+2026-02-10 01:54:47,834 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: low_confidence
+2026-02-10 01:54:47,834 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=low_confidence, action=TODO_LIST
+2026-02-10 01:54:47,835 - conversation_manager - INFO - [ACTION_REGISTRY] Executing: todo_list with params: {}
+2026-02-10 01:54:47,956 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 01:54:48,745 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 01:54:50,605 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 01:54:51,423 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:51,571 - telegram_handler - INFO - Message handled by conversation manager: todo_list
+2026-02-10 01:54:52,284 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:54,651 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:56,831 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:54:58,141 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:01,533 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:01,682 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:07,010 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:07,160 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:08,160 - telegram_handler - INFO - Message from 8550533554: Add to tasks give new list of vendors 1099
+2026-02-10 01:55:08,647 - conversation_manager - INFO - Classified intent: todo_add for message: Add to tasks give new list of vendors 1099
+2026-02-10 01:55:08,647 - conversation_manager - INFO - [ACTION_REGISTRY] Processing action: todo_add
+2026-02-10 01:55:15,615 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:19,803 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:55:19,809 - conversation_manager - INFO - [ACTION_REGISTRY] Extraction: params={}, missing=['title'], conf=0.00, reason=LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:55:19,817 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:20,301 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:55:20,945 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:24,070 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:25,708 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:28,956 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:33,225 - telegram_handler - INFO - Message from 8550533554: Non rep vendors 1099
+2026-02-10 01:55:33,750 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:34,074 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: missing_params
+2026-02-10 01:55:34,074 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=missing_params, action=TODO_ADD
+2026-02-10 01:55:34,336 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:46,191 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:50,312 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:52,521 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:55:52,946 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:53,062 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:55:57,614 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:55:59,321 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:04,216 - telegram_handler - INFO - Message from 8550533554: Title is vendors 1099
+2026-02-10 01:56:04,727 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:04,829 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: missing_params
+2026-02-10 01:56:04,829 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=missing_params, action=TODO_ADD
+2026-02-10 01:56:10,961 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:14,478 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:15,838 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:56:15,850 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:16,402 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:56:19,979 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:24,650 - telegram_handler - INFO - Message from 8550533554: 1099
+2026-02-10 01:56:25,396 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:26,575 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: missing_params
+2026-02-10 01:56:26,575 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=missing_params, action=TODO_ADD
+2026-02-10 01:56:29,601 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:40,153 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:56:40,319 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:40,658 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:56:43,831 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:44,227 - telegram_handler - INFO - Message from 8550533554: Show me brain storm
+2026-02-10 01:56:44,944 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:45,083 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: missing_params
+2026-02-10 01:56:45,083 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=missing_params, action=TODO_ADD
+2026-02-10 01:56:52,137 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:56,836 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:57,582 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:56:57,978 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:56:58,137 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:57:03,398 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:05,054 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:06,783 - telegram_handler - INFO - Message from 8550533554: Help
+2026-02-10 01:57:07,282 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: missing_params
+2026-02-10 01:57:07,282 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=missing_params, action=TODO_ADD
+2026-02-10 01:57:14,320 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:19,430 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 01:57:19,451 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:19,800 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:19,975 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 01:57:23,672 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:23,973 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:25,639 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:30,249 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:31,657 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:35,751 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:37,056 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:40,672 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:44,205 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:47,640 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:52,719 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:57:53,126 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:01,143 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:09,233 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:13,330 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:20,983 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:25,076 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:25,095 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:29,713 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:42,537 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:46,710 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:47,192 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:58:51,834 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:12,787 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:17,024 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:17,848 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:22,479 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:47,387 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:51,504 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:52,873 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 01:59:57,571 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:00:21,906 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:00:26,069 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:00:28,061 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:00:32,805 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:00:56,651 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:00,813 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:03,201 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:07,820 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:31,216 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:35,420 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:38,202 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:01:43,151 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:05,850 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:10,088 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:13,570 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:18,212 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:40,456 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:44,695 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:48,624 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:02:53,244 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:15,121 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:19,256 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:23,611 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:28,229 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:49,724 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:53,916 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:03:58,599 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:04:03,224 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:04:25,623 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:04:29,860 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:04:33,610 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:04:38,246 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:04:50,699 - telegram_handler - INFO - Message from 8550533554: Hi
+2026-02-10 02:04:51,170 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: missing_params
+2026-02-10 02:04:51,170 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=missing_params, action=TODO_ADD
+2026-02-10 02:05:03,234 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 02:05:03,252 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:03,925 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 02:05:04,377 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:08,736 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:13,356 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:34,782 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:38,938 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:43,799 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:05:48,452 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:09,998 - telegram_handler - ERROR - Update None caused error httpx.RemoteProtocolError: Server disconnected without sending a response.
+2026-02-10 02:06:11,391 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:18,839 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:23,632 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:41,836 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:46,571 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:54,006 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:06:58,203 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:07:17,055 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:07:21,210 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:07:28,580 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:07:32,757 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:07:51,810 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:07:55,954 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:08:03,131 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:08:07,267 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:08:26,472 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:08:30,590 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:08:37,773 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:01,002 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:05,219 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:08,332 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:12,966 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:35,584 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:39,738 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:43,367 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:09:47,997 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:10,142 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:14,303 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:18,397 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:23,148 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:44,815 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:49,059 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:53,591 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:10:58,374 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:11:19,566 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:11:23,700 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:11:28,724 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:11:33,349 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:11:54,068 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:11:58,276 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:12:03,729 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:12:08,349 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:12:28,778 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:12:32,940 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:12:38,830 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:12:43,475 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:03,390 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:07,518 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:13,889 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:18,826 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:37,898 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:42,034 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:49,199 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:13:53,376 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:14:12,485 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:14:16,594 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:14:23,779 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:14:27,861 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:29:47,021 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:29:51,144 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:29:58,440 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:30:02,568 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:44:05,024 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:44:12,979 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 02:44:17,091 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 03:20:30,546 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:20:31,550 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:20:33,056 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:20:35,307 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:20:36,591 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:20:38,685 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:26:28,477 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 03:26:36,424 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 05:46:05,627 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 06:47:06,644 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:17:17,590 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:17:32,721 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:17:36,856 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:17:48,083 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:17:52,247 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:07,239 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:11,366 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:22,635 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:26,776 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:41,694 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:45,878 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:18:57,130 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:01,269 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:16,246 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:20,367 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:31,601 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:35,713 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:50,704 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:53,459 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 08:19:53,463 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 08:19:53,463 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 08:19:53,463 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 08:19:53,463 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 08:19:53,463 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 08:19:53,463 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 08:19:53,463 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 08:19:53,466 - __main__ - INFO - Database manager initialized
+2026-02-10 08:19:53,467 - __main__ - INFO - Database initialized
+2026-02-10 08:19:53,467 - __main__ - INFO - Checking for queued messages...
+2026-02-10 08:19:53,467 - __main__ - INFO - Queue processor initialized
+2026-02-10 08:19:53,468 - __main__ - INFO - No pending messages in queue
+2026-02-10 08:19:53,510 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 08:19:53,511 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 08:19:53,511 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 08:19:53,511 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 08:19:53,511 - __main__ - INFO - Telegram handler initialized
+2026-02-10 08:19:53,545 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 08:19:54,032 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 08:19:54,032 - telegram.ext.Application - INFO - Application started
+2026-02-10 08:19:54,372 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:54,830 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:19:58,992 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:00,115 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:05,486 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:06,031 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:09,522 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:10,112 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:10,433 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 08:20:10,436 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 08:20:10,436 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 08:20:10,436 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 08:20:10,436 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 08:20:10,436 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 08:20:10,436 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 08:20:10,437 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 08:20:10,438 - __main__ - INFO - Database manager initialized
+2026-02-10 08:20:10,438 - __main__ - INFO - Database initialized
+2026-02-10 08:20:10,438 - __main__ - INFO - Checking for queued messages...
+2026-02-10 08:20:10,438 - __main__ - INFO - Queue processor initialized
+2026-02-10 08:20:10,439 - __main__ - INFO - No pending messages in queue
+2026-02-10 08:20:10,480 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 08:20:10,481 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 08:20:10,481 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 08:20:10,481 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 08:20:10,481 - __main__ - INFO - Telegram handler initialized
+2026-02-10 08:20:10,515 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 08:20:11,131 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 08:20:11,132 - telegram.ext.Application - INFO - Application started
+2026-02-10 08:20:14,463 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:14,968 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:16,092 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:19,601 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:22,876 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:24,287 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:25,247 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:28,281 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:30,634 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:31,776 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:35,213 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:39,714 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:43,640 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:43,728 - telegram_handler - ERROR - Update None caused error Conflict: terminated by other getUpdates request; make sure that only one bot instance is running
+2026-02-10 08:20:50,885 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 08:20:50,886 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 08:20:50,896 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 08:20:51,473 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 08:20:51,475 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 08:20:51,485 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 08:20:56,051 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 08:20:56,051 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 08:20:56,061 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 08:21:00,973 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 08:21:00,977 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 08:21:00,986 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 08:21:06,317 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-10 08:21:06,321 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 26
+2026-02-10 08:21:06,321 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 27
+2026-02-10 08:21:06,321 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 28
+2026-02-10 08:21:06,321 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 29
+2026-02-10 08:21:06,321 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 30
+2026-02-10 08:21:06,321 - dotenv.main - WARNING - python-dotenv could not parse statement starting at line 31
+2026-02-10 08:21:06,321 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-10 08:21:06,322 - __main__ - INFO - Database manager initialized
+2026-02-10 08:21:06,323 - __main__ - INFO - Database initialized
+2026-02-10 08:21:06,323 - __main__ - INFO - Checking for queued messages...
+2026-02-10 08:21:06,323 - __main__ - INFO - Queue processor initialized
+2026-02-10 08:21:06,324 - __main__ - INFO - No pending messages in queue
+2026-02-10 08:21:06,365 - core.InputOutput.ambiguity_resolver - INFO - rapidfuzz not installed – using built-in fuzzy matching
+2026-02-10 08:21:06,366 - core.InputOutput.intent_tree - WARNING - Intent tree config not found at /Users/work/Telgram bot/core/config/intent_tree.json – using defaults
+2026-02-10 08:21:06,366 - conversation_manager - INFO - [INTENT_TREE] IntentClassifier loaded
+2026-02-10 08:21:06,366 - telegram_handler - INFO - Conversation manager initialized
+2026-02-10 08:21:06,366 - __main__ - INFO - Telegram handler initialized
+2026-02-10 08:21:06,400 - telegram_handler - INFO - Starting Telegram bot...
+2026-02-10 08:21:06,932 - apscheduler.scheduler - INFO - Scheduler started
+2026-02-10 08:21:06,932 - telegram.ext.Application - INFO - Application started
+2026-02-10 08:21:10,382 - telegram_handler - INFO - Message from 8550533554: hi
+2026-02-10 08:21:10,919 - __main__ - INFO - Ollama client initialized
+2026-02-10 08:21:10,938 - __main__ - INFO - Claude client initialized
+2026-02-10 08:21:10,939 - conversation_manager - INFO - [ACTION_REGISTRY] AmbiguityResolver initialized
+2026-02-10 08:21:10,939 - conversation_manager - INFO - [ACTION_REGISTRY] ConversationStateMachine initialized
+2026-02-10 08:21:10,939 - conversation_manager - INFO - [ACTION_REGISTRY] Initialized successfully
+2026-02-10 08:21:11,193 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 08:21:11,195 - __main__ - INFO - Gmail client initialized
+2026-02-10 08:21:11,195 - conversation_manager - INFO - Classified intent: greeting for message: hi
+2026-02-10 08:21:11,466 - telegram_handler - INFO - Message handled by conversation manager: greeting
+2026-02-10 08:21:14,063 - telegram.ext.Application - INFO - Application is stopping. This might take a moment.
+2026-02-10 08:21:14,066 - apscheduler.scheduler - INFO - Scheduler has been shut down
+2026-02-10 08:21:14,076 - telegram.ext.Application - INFO - Application.stop() complete
+2026-02-10 08:21:16,896 - telegram_handler - INFO - Message from 8550533554: show me todos
+2026-02-10 08:21:22,626 - conversation_manager - INFO - Classified intent: todo_list for message: show me todos
+2026-02-10 08:21:22,629 - conversation_manager - INFO - [ACTION_REGISTRY] Processing action: todo_list
+2026-02-10 08:21:22,726 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 08:21:27,500 - core.InputOutput.action_extractor - WARNING - LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 08:21:27,502 - conversation_manager - INFO - [ACTION_REGISTRY] Extraction: params={}, missing=[], conf=0.00, reason=LLM extraction failed: Expecting value: line 1 column 1 (char 0)
+2026-02-10 08:21:27,977 - telegram_handler - INFO - Message handled by conversation manager: action_registry
+2026-02-10 08:21:31,490 - telegram_handler - INFO - Message from 8550533554: yes
+2026-02-10 08:21:31,726 - conversation_manager - INFO - [ACTION_REGISTRY] User 8550533554 is awaiting: low_confidence
+2026-02-10 08:21:31,726 - conversation_manager - INFO - [ACTION_REGISTRY] Handling awaiting response: type=low_confidence, action=TODO_LIST
+2026-02-10 08:21:31,728 - conversation_manager - INFO - [ACTION_REGISTRY] Executing: todo_list with params: {}
+2026-02-10 08:21:31,814 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 08:21:32,471 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 08:21:33,179 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 08:21:33,983 - telegram_handler - INFO - Message handled by conversation manager: todo_list
+2026-02-10 08:21:50,516 - telegram_handler - INFO - Message from 8550533554: add task do vednor 1099 filing
+2026-02-10 08:21:51,108 - conversation_manager - INFO - Classified intent: todo_add for message: add task do vednor 1099 filing
+2026-02-10 08:21:51,108 - conversation_manager - INFO - [ACTION_REGISTRY] Processing action: todo_add
+2026-02-10 08:21:51,109 - conversation_manager - INFO - [ACTION_REGISTRY] Extraction: params={'title': 'do vednor 1099 filing', 'priority': 'normal'}, missing=[], conf=0.90, reason=Deterministic: Extracted task title from pattern
+2026-02-10 08:21:51,109 - conversation_manager - INFO - [ACTION_REGISTRY] Executing: todo_add with params: {'title': 'do vednor 1099 filing', 'priority': 'normal'}
+2026-02-10 08:21:51,188 - googleapiclient.discovery_cache - INFO - file_cache is only supported with oauth2client<4.0.0
+2026-02-10 08:21:51,783 - todo_manager - ERROR - Failed to add task: Bad request - check your range notation and parameters
+2026-02-10 08:21:51,783 - conversation_manager - ERROR - Error adding todo: Failed to add task: Bad request - check your range notation and parameters
+Traceback (most recent call last):
+  File "/Users/work/Telgram bot/brain/conversation_manager.py", line 870, in _handle_todo_add
+    task_id = todo_mgr.add_task(title=task_title, priority=priority)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/work/Telgram bot/Bot_actions/todo_manager.py", line 116, in add_task
+    raise TodoManagerError(f"Failed to add task: {error}")
+todo_manager.TodoManagerError: Failed to add task: Bad request - check your range notation and parameters
+2026-02-10 08:21:52,077 - telegram_handler - INFO - Message handled by conversation manager: todo_manager
+2026-02-10 08:34:14,078 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 08:34:15,079 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 08:34:16,581 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 08:34:18,846 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 08:34:22,230 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 08:34:27,295 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-10 09:10:22,315 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known

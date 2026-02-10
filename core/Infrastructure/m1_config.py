@@ -3,42 +3,59 @@ Mode 4 Configuration - M1 MacBook
 Settings for Telegram bot, Gmail, Sheets, and Ollama integration.
 """
 
-import os
-import logging
 
-# Suppress noisy Google API cache warnings
-logging.getLogger('googleapiclient.discovery_cache').setLevel(logging.ERROR)
 
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    # Load from mode4/.env
-    dotenv_path = os.path.join(os.path.dirname(__file__), '.env')
+    import os
+    
+    # 1. Get the folder where this file is (core/Infrastructure)
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
+    # 2. Go up two levels to the Root Folder (Telgram bot)
+    root_dir = os.path.dirname(os.path.dirname(current_dir))
+    
+    # 3. Load .env from the Root
+    dotenv_path = os.path.join(root_dir, '.env')
     load_dotenv(dotenv_path)
+    
+    print(f"✅ Loaded config from: {dotenv_path}")
+
 except ImportError:
     print("Warning: python-dotenv not installed. Install with: pip install python-dotenv")
 except Exception as e:
     print(f"Warning: Could not load .env file: {e}")
 
 # ============================================
-# PATHS (Corrected)
+# PATHS (Fixed for Root Credentials)
 # ============================================
 
-# Base directory is the directory containing this file (mode4/)
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+# 1. Identify where this file is: .../core/Infrastructure/
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
 
-# Credentials directory - in parent directory (Telgram bot/)
-CREDENTIALS_DIR = os.path.join(os.path.dirname(BASE_DIR), "credentials")
+# 2. Go up two levels to find the Root Folder: .../Telgram bot/
+CORE_DIR = os.path.dirname(CURRENT_DIR)      # .../core
+ROOT_DIR = os.path.dirname(CORE_DIR)         # .../Telgram bot
+
+# 3. Define paths relative to the Root
+BASE_DIR = CURRENT_DIR  # Keep this for internal logic
+CREDENTIALS_DIR = os.path.join(ROOT_DIR, "credentials")  # <--- Now points to main folder
 
 # Google Sheets service account JSON
 SHEETS_CREDENTIALS_PATH = os.path.join(CREDENTIALS_DIR, "sheets_service_account.json")
 
-# Gmail OAuth credentials (token will be stored alongside)
+# Gmail OAuth credentials
 GMAIL_CREDENTIALS_PATH = os.path.join(CREDENTIALS_DIR, "gmail_credentials.json")
 GMAIL_TOKEN_PATH = os.path.join(CREDENTIALS_DIR, "gmail_token.json")
 
 # Telegram bot configuration
 TELEGRAM_CONFIG_PATH = os.path.join(CREDENTIALS_DIR, "telegram_config.json")
+
+# Log file (Keep logs in root or core, your choice. This puts them in root)
+LOG_PATH = os.path.join(ROOT_DIR, "mode4.log")
+LOG_MAX_BYTES = 2 * 1024 * 1024   # 2 MB max per log file
+LOG_BACKUP_COUNT = 3               # Keep 3 rotated backups
 
 # Log file
 LOG_PATH = os.path.join(BASE_DIR, "mode4.log")
