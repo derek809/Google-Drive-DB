@@ -1,5 +1,5 @@
 {
-  "_comment": "Intent Decision Tree configuration for Mode 4. Edit keywords and thresholds without code changes.",
+  "_comment": "Intent Decision Tree configuration for Mode 4. Expanded to include Todo, Skills, and Idea Bouncing.",
 
   "thresholds": {
     "auto_route": 0.8,
@@ -11,6 +11,9 @@
     "email_action": [],
     "sheet_action": [],
     "workflow_action": [],
+    "todo_add": ["title"],
+    "idea_bounce": ["topic"],
+    "skill_finalize": ["slug"],
     "casual": [],
     "clarification_needed": []
   },
@@ -50,43 +53,82 @@
         "confidence": 0.85,
         "extract_params": [
           {"pattern": "(?:to|for)\\s+(\\w+)", "param": "recipient"},
-          {"pattern": "(?:about|regarding|re:?)\\s+(.+?)(?:\\s+and\\s+|\\s*$)", "param": "topic"}
+          {"pattern": "(?:about|regarding|re:?)\\s+(.+?)(?:\\s+and\\s+|\\s*$)", "param": "topic"},
+          {"pattern": "from\\s+(\\w+)", "param": "sender"}
         ]
       },
       "false_branch": {
-        "name": "contains_sheet_keywords",
+        "name": "contains_todo_keywords",
         "condition_type": "keywords",
-        "condition_data": [
-          "sheet", "spreadsheet", "table", "csv", "excel",
-          "columns", "rows", "tracker",
-          "create a sheet", "make a sheet", "update the sheet",
-          "google sheet"
-        ],
+        "condition_data": ["todo", "task", "reminder", "remind me", "agenda", "list my", "show my"],
         "true_branch": {
-          "name": "sheet_action_leaf",
-          "action": "sheet_action",
+          "name": "todo_action_leaf",
+          "action": "todo_add",
           "confidence": 0.85,
           "extract_params": [
-            {"pattern": "(?:sheet|spreadsheet)\\s+(?:for|about|with)\\s+(.+)", "param": "sheet_topic"}
+            {"pattern": "(?:add|create|new)\\s+task[:\\s]+(.+)", "param": "title"},
+            {"pattern": "(?:todo|task)[:\\s]+(.+)", "param": "title"},
+            {"pattern": "!(high|medium|low)", "param": "priority"}
           ]
         },
         "false_branch": {
-          "name": "contains_multi_step_indicators",
+          "name": "contains_skill_finalize_keywords",
           "condition_type": "keywords",
-          "condition_data": [
-            "then", "and then", "after that", "next",
-            "first", "finally", "step 1", "step 2"
-          ],
+          "condition_data": ["finalize", "save skill", "save this idea", "lock it in", "save to doc"],
           "true_branch": {
-            "name": "workflow_action_leaf",
-            "action": "workflow_action",
-            "confidence": 0.75
+            "name": "skill_finalize_leaf",
+            "action": "skill_finalize",
+            "confidence": 0.9,
+            "extract_params": [
+              {"pattern": "#([a-z0-9_]+)", "param": "slug"}
+            ]
           },
           "false_branch": {
-            "name": "clarification_leaf",
-            "action": "clarification_needed",
-            "confidence": 0.0,
-            "follow_up": "I'm not sure what you'd like me to do. Could you be more specific?"
+            "name": "contains_idea_bounce_keywords",
+            "condition_type": "keywords",
+            "condition_data": ["help me think", "bounce idea", "brainstorm", "what do you think", "explore this idea"],
+            "true_branch": {
+              "name": "idea_bounce_leaf",
+              "action": "idea_bounce",
+              "confidence": 0.85
+            },
+            "false_branch": {
+              "name": "contains_sheet_keywords",
+              "condition_type": "keywords",
+              "condition_data": [
+                "sheet", "spreadsheet", "table", "csv", "excel",
+                "columns", "rows", "tracker",
+                "create a sheet", "make a sheet", "update the sheet",
+                "google sheet"
+              ],
+              "true_branch": {
+                "name": "sheet_action_leaf",
+                "action": "sheet_action",
+                "confidence": 0.85,
+                "extract_params": [
+                  {"pattern": "(?:sheet|spreadsheet)\\s+(?:for|about|with)\\s+(.+)", "param": "sheet_topic"}
+                ]
+              },
+              "false_branch": {
+                "name": "contains_multi_step_indicators",
+                "condition_type": "keywords",
+                "condition_data": [
+                  "then", "and then", "after that", "next",
+                  "first", "finally", "step 1", "step 2"
+                ],
+                "true_branch": {
+                  "name": "workflow_action_leaf",
+                  "action": "workflow_action",
+                  "confidence": 0.75
+                },
+                "false_branch": {
+                  "name": "clarification_leaf",
+                  "action": "clarification_needed",
+                  "confidence": 0.0,
+                  "follow_up": "I'm not sure what you'd like me to do. Could you be more specific?"
+                }
+              }
+            }
           }
         }
       }
