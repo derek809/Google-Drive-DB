@@ -169,8 +169,9 @@ class IntentClassifier:
 
     def __init__(self, config_path: Optional[str] = None):
         if config_path is None:
-            base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            config_path = os.path.join(base, "config", self._CONFIG_FILENAME)
+            # Look in playbook/ directory (project root / playbook)
+            project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+            config_path = os.path.join(project_root, "playbook", self._CONFIG_FILENAME)
 
         self._config_path = config_path
         self._root: Optional[DecisionNode] = None

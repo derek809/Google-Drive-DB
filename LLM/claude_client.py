@@ -25,8 +25,11 @@ Usage:
 
 import os
 import json
+import logging
 import re
 from typing import Dict, Any, Optional, List
+
+logger = logging.getLogger(__name__)
 
 # Anthropic library
 try:
@@ -34,6 +37,53 @@ try:
     ANTHROPIC_AVAILABLE = True
 except ImportError:
     ANTHROPIC_AVAILABLE = False
+
+# ── Load personality/style config from playbook/Personality.json ─────────────
+_PLAYBOOK_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "playbook",
+)
+_PERSONALITY: Dict[str, Any] = {}
+
+try:
+    with open(os.path.join(_PLAYBOOK_DIR, "Personality.json"), "r") as _fh:
+        _PERSONALITY = json.load(_fh)
+    logger.info("Loaded Personality.json from %s", _PLAYBOOK_DIR)
+except (FileNotFoundError, json.JSONDecodeError) as _exc:
+    logger.warning("Could not load Personality.json: %s – using generic style", _exc)
+
+
+def _build_style_guidance() -> str:
+    """Build a concise style guidance string from Personality.json."""
+    ep = _PERSONALITY.get("email_personality", {})
+    if not ep:
+        return ""
+
+    tone = ep.get("tone", "")
+    length = ep.get("length_preference", "")
+    greeting = ep.get("greeting_style", "")
+    closing = ep.get("closing_style", "")
+    sentence = ep.get("sentence_structure", "")
+    avoidances = ep.get("avoidances", [])
+    traits = ep.get("key_traits", [])
+
+    lines = ["WRITING STYLE GUIDE (based on Derek's actual email patterns):"]
+    if tone:
+        lines.append(f"- Tone: {tone}")
+    if traits:
+        lines.append(f"- Key traits: {', '.join(traits[:4])}")
+    if length:
+        lines.append(f"- Length: {length}")
+    if greeting:
+        lines.append(f"- Greeting: {greeting}")
+    if closing:
+        lines.append(f"- Closing: {closing}")
+    if sentence:
+        lines.append(f"- Sentence style: {sentence}")
+    if avoidances:
+        lines.append(f"- Avoid: {', '.join(avoidances[:4])}")
+
+    return "\n".join(lines)
 
 
 class ClaudeClientError(Exception):
@@ -125,8 +175,25 @@ class ClaudeClient:
                 'draft_text': None
             }
 
-        # Build context
+        # Build context with personality-driven style guidance
+        style_guide = _build_style_guidance()
+
+        # Adapt tone for specific recipient types from Personality.json
+        recipient_hint = ""
+        if contact_tone:
+            recipient_hint = f"\nPREFERRED TONE for this contact: {contact_tone}\n"
+        else:
+            adaptation = _PERSONALITY.get("email_personality", {}).get("recipient_adaptation", {})
+            sender_name = email_data.get("sender_name", "").lower()
+            if adaptation:
+                for _rtype, _guidance in adaptation.items():
+                    if any(name in sender_name for name in _guidance.lower().split("e.g., ")[-1].split(",")):
+                        recipient_hint = f"\nRECIPIENT STYLE NOTE: {_guidance}\n"
+                        break
+
         context = f"""You are drafting an email response for Derek Criollo, Director of Operations at Old City Capital (a real estate investment firm).
+
+{style_guide}
 
 ORIGINAL EMAIL:
 Subject: {email_data.get('subject', 'N/A')}
@@ -135,10 +202,7 @@ Body:
 {email_data.get('body', 'N/A')[:2000]}
 
 DEREK'S INSTRUCTION: {instruction}
-"""
-
-        if contact_tone:
-            context += f"\nPREFERRED TONE for this contact: {contact_tone}\n"
+{recipient_hint}"""
 
         if template:
             context += f"""

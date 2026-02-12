@@ -5,14 +5,22 @@ Defines formal contracts (ActionSchema) for every executable action in the syste
 Each action specifies required/optional parameters, context needs, risk level,
 fallback strategies, and deterministic extraction patterns.
 
+Runtime metadata (progress_updates, timeouts, undo) is loaded from
+playbook/actions.json and merged into the registry at import time.
+
 Risk Levels:
     LOW    - Reversible actions (TODO_COMPLETE, TODO_LIST)
     MEDIUM - Reviewable before commit (EMAIL_DRAFT, SKILL_CREATE)
     HIGH   - Irreversible actions (EMAIL_SEND, TODO_DELETE)
 """
 
+import json
+import logging
+import os
 from enum import Enum
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 try:
     from pydantic import BaseModel, Field
@@ -407,3 +415,41 @@ def get_action_name(intent: str) -> Optional[str]:
         if schema.intent == intent:
             return action_name
     return None
+
+
+# ── Load runtime metadata from playbook/actions.json ─────────────────────────
+# Merges progress_updates, timeout_seconds, allows_undo, action_class, and
+# confirmation_message from the JSON file into the ACTIONS registry.
+
+_PLAYBOOK_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "playbook",
+)
+_ACTIONS_JSON: Dict[str, Dict] = {}
+
+try:
+    with open(os.path.join(_PLAYBOOK_DIR, "actions.json"), "r") as _fh:
+        _ACTIONS_JSON = json.load(_fh)
+    logger.info("Loaded actions.json from %s", _PLAYBOOK_DIR)
+except (FileNotFoundError, json.JSONDecodeError) as _exc:
+    logger.warning("Could not load actions.json: %s – using schema defaults", _exc)
+
+# Merge runtime metadata into existing schemas
+for _action_key, _json_meta in _ACTIONS_JSON.items():
+    if _action_key.startswith("_"):
+        continue  # skip metadata keys
+    if _action_key in ACTIONS:
+        _schema = ACTIONS[_action_key]
+        # Attach runtime fields that aren't part of ActionSchema but are useful
+        _schema.progress_updates = _json_meta.get("progress_updates", [])
+        _schema.timeout_seconds = _json_meta.get("timeout_seconds", 30)
+        _schema.allows_undo = _json_meta.get("allows_undo", False)
+        _schema.action_class = _json_meta.get("action_class", "")
+        # Use JSON confirmation_message if schema doesn't have one
+        if not getattr(_schema, "confirmation_template", None) and _json_meta.get("confirmation_message"):
+            _schema.confirmation_template = _json_meta["confirmation_message"]
+
+
+def get_action_runtime(action_name: str) -> Dict:
+    """Get runtime metadata from actions.json for a given action."""
+    return _ACTIONS_JSON.get(action_name, {})
