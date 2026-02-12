@@ -4,3 +4,4 @@ __pycache__/
 credentials/
 data/
 mode4/
+*.log
