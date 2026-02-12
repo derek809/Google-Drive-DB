@@ -10,6 +10,7 @@ Handles:
 - Action Registry integration (parameter extraction, validation, session state)
 """
 
+import os
 import re as _re
 import time
 import random
@@ -360,6 +361,32 @@ class ConversationManager:
         # Commands (explicit)
         if text.startswith('/'):
             return Intent.COMMAND
+
+        # === INTENT TREE CLASSIFIER (from playbook/intent_tree.json) ===
+        # Try the decision tree first — it was loaded from JSON with expanded
+        # support for todo_add, idea_bounce, skill_finalize, etc.
+        if self._intent_classifier:
+            try:
+                tree_result = self._intent_classifier.classify(text_lower)
+                if tree_result and tree_result.confidence >= 0.7:
+                    # Map the tree category to our Intent enum
+                    _tree_to_intent = {
+                        "email_action": Intent.EMAIL_DRAFT,
+                        "todo_add": Intent.TODO_ADD,
+                        "idea_bounce": Intent.IDEA_BOUNCE,
+                        "skill_finalize": Intent.SKILL_FINALIZE,
+                        "casual": Intent.CASUAL_CHAT,
+                        "clarification_needed": Intent.UNCLEAR,
+                    }
+                    mapped = _tree_to_intent.get(tree_result.category)
+                    if mapped:
+                        logger.info(
+                            "[INTENT_TREE] Classified '%s' as %s (conf=%.2f)",
+                            text[:40], mapped.value, tree_result.confidence,
+                        )
+                        return mapped
+            except Exception as e:
+                logger.debug("[INTENT_TREE] Classification failed: %s", e)
 
         # === CONVERSATION GATE ===
         # These checks MUST come first to prevent conversational text from
@@ -918,7 +945,7 @@ Just ask naturally and I'll figure out what you need!"""
         try:
             import sys
             import html
-            sys.path.insert(0, '/Users/work/Telgram bot')
+            sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
             from sheets_client import GoogleSheetsClient
             from m1_config import SPREADSHEET_ID, SHEETS_CREDENTIALS_PATH
             from db_manager import DatabaseManager
@@ -1228,7 +1255,7 @@ Just ask naturally and I'll figure out what you need!"""
 
             elif origin in ('mcp', 'sheets'):
                 import sys
-                sys.path.insert(0, '/Users/work/Telgram bot')
+                sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
                 from sheets_client import GoogleSheetsClient
                 from m1_config import SPREADSHEET_ID, SHEETS_CREDENTIALS_PATH
                 sheets = None
@@ -1985,6 +2012,9 @@ Just ask naturally and I'll figure out what you need!"""
         """
         Detect multi-step workflow requests.
 
+        Uses connector phrases from playbook/workflows.json when available,
+        with hardcoded defaults as fallback.
+
         Examples:
         - "Draft email to Jason. Then create a Google Sheet. Then email Sarah."
         - "Find emails from John. Also draft a response."
@@ -1995,7 +2025,7 @@ Just ask naturally and I'll figure out what you need!"""
         """
         import re
 
-        # Workflow connectors (case-insensitive patterns)
+        # Build connector regex patterns — merge JSON-defined and defaults
         connectors = [
             r'\.\s+then\s+',
             r'\.\s+also\s+',
@@ -2004,6 +2034,19 @@ Just ask naturally and I'll figure out what you need!"""
             r'\.\s+next\s+',
             r'\s+and\s+then\s+',
         ]
+
+        # Add connectors from workflows.json (e.g. ". then", ". also", "and then")
+        try:
+            from workflow_manager import _WORKFLOWS_CONFIG
+            json_connectors = _WORKFLOWS_CONFIG.get("connectors", [])
+            for conn in json_connectors:
+                # Convert plain text connectors to regex
+                escaped = re.escape(conn.strip())
+                pattern = r'\s*' + escaped + r'\s+'
+                if pattern not in connectors:
+                    connectors.append(pattern)
+        except (ImportError, Exception):
+            pass
 
         # Check if any connector is present
         text_lower = text.lower()
@@ -2962,15 +3005,31 @@ Just ask naturally and I'll figure out what you need!"""
             await self.telegram.send_response(chat_id, "Okay, action canceled. What would you like to do instead?")
             return {'handled': True, 'routed_to': 'action_registry', 'action': 'canceled'}
 
-        await self.telegram.send_response(chat_id, "I didn't catch that. Reply 'yes' to confirm or 'no' to cancel.")
-        return {'handled': True, 'routed_to': 'action_registry', 'awaiting': 'confirmation'}
+        # If the user didn't say yes or no, they might be trying to do
+        # something else entirely — clear awaiting state and let the message
+        # be re-processed through normal intent classification.
+        self._session_state.clear_awaiting(user_id)
+        return None  # Fall through to normal message handling
 
     async def _resolve_missing_param(
         self, user_id: int, text: str, chat_id: int,
         pending_action: str, stored_context: Dict[str, Any]
     ) -> Dict[str, Any]:
-        """Extract missing parameter from user's follow-up message."""
+        """Extract missing parameter from user's follow-up message.
+
+        Includes retry tracking to prevent infinite loops — if the same
+        missing field is asked 3 times, the flow aborts gracefully.
+        """
         from core.actions import get_action_schema, get_action_name
+
+        # --- Escape hatch: let the user bail out ---
+        text_lower = text.lower().strip()
+        if text_lower in ("cancel", "stop", "nevermind", "nvm", "quit", "exit"):
+            self._session_state.clear_awaiting(user_id)
+            await self.telegram.send_response(
+                chat_id, "Okay, cancelled. What would you like to do instead?"
+            )
+            return {'handled': True, 'routed_to': 'action_registry', 'action': 'canceled'}
 
         action_schema = get_action_schema(pending_action)
         if not action_schema:
@@ -2978,6 +3037,10 @@ Just ask naturally and I'll figure out what you need!"""
             return {'handled': True, 'routed_to': 'action_registry', 'error': 'unknown_action'}
 
         action_name = get_action_name(pending_action)
+
+        # --- Retry tracking to prevent infinite loop ---
+        retry_count = stored_context.get("_retry_count", 0)
+        max_retries = 3
 
         # Re-run extraction with user's clarification
         if self._extractor:
@@ -2993,6 +3056,14 @@ Just ask naturally and I'll figure out what you need!"""
         # Merge with previously extracted params
         final_params = {**stored_context.get("params", {}), **params}
 
+        # If the user's raw response fills the first missing field directly,
+        # store it (handles simple answers like "Meeting follow-up" for subject)
+        prev_missing = stored_context.get("_last_missing", [])
+        if prev_missing and text.strip():
+            first_missing = prev_missing[0]
+            if first_missing not in final_params or final_params[first_missing] is None:
+                final_params[first_missing] = text.strip()
+
         # Re-check missing fields
         still_missing = [
             p for p in action_schema.required_params
@@ -3000,8 +3071,21 @@ Just ask naturally and I'll figure out what you need!"""
         ]
 
         if still_missing:
+            retry_count += 1
+            if retry_count > max_retries:
+                # Too many retries — abort and clear state
+                self._session_state.clear_awaiting(user_id)
+                await self.telegram.send_response(
+                    chat_id,
+                    "I'm having trouble getting the info I need. "
+                    "Let's start fresh — just tell me what you'd like to do."
+                )
+                return {'handled': True, 'routed_to': 'action_registry', 'action': 'aborted_max_retries'}
+
             # Still need more info — update stored params and re-ask
             stored_context["params"] = final_params
+            stored_context["_retry_count"] = retry_count
+            stored_context["_last_missing"] = still_missing
             if self._validator:
                 validation = self._validator.validate(
                     action_name=action_name,
@@ -3295,8 +3379,10 @@ Just ask naturally and I'll figure out what you need!"""
             return {'handled': True, 'routed_to': 'brainstorm', 'awaiting': 'edit'}
 
         else:
-            await self.telegram.send_response(chat_id, "Reply 'yes' to confirm or 'no' to cancel.")
-            return {'handled': True, 'routed_to': 'confirmation', 'awaiting': 'confirmation'}
+            # Unrecognized response — clear state and let normal flow handle it
+            # instead of looping on "reply yes/no" forever
+            self._session_state.clear_awaiting(user_id)
+            return None  # Fall through to normal message handling
 
     # ==================
     # BRAINSTORM HANDLERS
@@ -3420,15 +3506,17 @@ Just ask naturally and I'll figure out what you need!"""
                 )
                 await self.telegram.send_response(chat_id, summary)
 
-                # Store for confirmation
+                # Store for confirmation — use the correct set_awaiting signature
                 self._init_action_registry()
                 if self._session_state:
                     self._session_state.set_awaiting(
-                        user_id, 'confirmation',
-                        data={
+                        user_id=user_id,
+                        awaiting_type='confirmation',
+                        pending_action='EMAIL_DRAFT',
+                        context_data={
                             'action': 'email_draft',
                             'collected': collected
-                        }
+                        },
                     )
                 return {'handled': True, 'routed_to': 'clarification', 'awaiting': 'confirmation'}
 
