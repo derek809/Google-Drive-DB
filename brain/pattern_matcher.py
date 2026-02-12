@@ -22,6 +22,7 @@ Usage:
 """
 
 import json
+import logging
 import re
 from typing import Dict, List, Optional, Any, Tuple
 
@@ -29,6 +30,22 @@ from typing import Dict, List, Optional, Any, Tuple
 import sys
 import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+logger = logging.getLogger(__name__)
+
+# ── Load email patterns and intent classification from playbook/templates.json ─
+_PLAYBOOK_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "playbook",
+)
+_TEMPLATES_JSON: Dict[str, Any] = {}
+
+try:
+    with open(os.path.join(_PLAYBOOK_DIR, "templates.json"), "r") as _fh:
+        _TEMPLATES_JSON = json.load(_fh)
+    logger.info("Loaded templates.json from %s", _PLAYBOOK_DIR)
+except (FileNotFoundError, json.JSONDecodeError) as _exc:
+    logger.warning("Could not load templates.json: %s – using defaults", _exc)
 
 try:
     from sheets_client import GoogleSheetsClient, SheetsClientError
@@ -86,6 +103,10 @@ class PatternMatcher:
         self.templates: Dict[str, Dict] = {}
         self.contacts: Dict[str, Dict] = {}  # Keyed by email
 
+        # Load JSON-defined patterns as fallback/supplement
+        self._json_email_patterns = _TEMPLATES_JSON.get("email_patterns", [])
+        self._json_intent_patterns = _TEMPLATES_JSON.get("intent_classification_patterns", {})
+
     def _ensure_client(self):
         """Ensure Sheets client is connected."""
         if self.sheets_client is None:
@@ -126,35 +147,48 @@ class PatternMatcher:
         self.load_contacts()
 
     def load_patterns(self) -> List[Dict]:
-        """Load patterns from Sheets."""
-        self._ensure_client()
+        """Load patterns from Sheets, falling back to playbook/templates.json."""
+        try:
+            self._ensure_client()
 
-        result = self.sheets_client.read_range(
-            self.spreadsheet_id,
-            f"{self.patterns_sheet}!A:F"
-        )
+            result = self.sheets_client.read_range(
+                self.spreadsheet_id,
+                f"{self.patterns_sheet}!A:F"
+            )
 
-        if not result.get('success'):
-            raise PatternMatcherError(f"Failed to load patterns: {result.get('error')}")
+            if not result.get('success'):
+                raise PatternMatcherError(f"Failed to load patterns: {result.get('error')}")
 
-        values = result.get('values', [])
-        if len(values) < 2:
+            values = result.get('values', [])
+            if len(values) < 2:
+                self.patterns = []
+                return self.patterns
+
+            # First row is header
+            headers = [h.lower().replace(' ', '_') for h in values[0]]
+
             self.patterns = []
-            return self.patterns
+            for row in values[1:]:
+                if not row or not row[0]:
+                    continue
 
-        # First row is header
-        headers = [h.lower().replace(' ', '_') for h in values[0]]
+                pattern = {}
+                for i, header in enumerate(headers):
+                    pattern[header] = row[i] if i < len(row) else ""
 
-        self.patterns = []
-        for row in values[1:]:
-            if not row or not row[0]:
-                continue
+                self.patterns.append(pattern)
 
-            pattern = {}
-            for i, header in enumerate(headers):
-                pattern[header] = row[i] if i < len(row) else ""
-
-            self.patterns.append(pattern)
+        except Exception as e:
+            logger.warning("Sheets unavailable for patterns, using templates.json fallback: %s", e)
+            # Fall back to JSON-defined patterns
+            self.patterns = []
+            for jp in self._json_email_patterns:
+                self.patterns.append({
+                    "pattern_name": jp.get("pattern_name", ""),
+                    "keywords": ",".join(jp.get("keywords", [])),
+                    "confidence_boost": jp.get("confidence_boost", 0),
+                    "notes": jp.get("action", ""),
+                })
 
         return self.patterns
 
@@ -413,14 +447,27 @@ class PatternMatcher:
         return self.templates.get(template_id)
 
     def get_template_for_pattern(self, pattern_name: str) -> Optional[Dict]:
-        """Get template associated with a pattern name."""
-        # Common pattern-to-template mappings
+        """Get template associated with a pattern name.
+
+        Uses mappings from playbook/templates.json when available,
+        with hardcoded defaults as fallback.
+        """
+        # Build mapping from templates.json email_patterns
         mapping = {
             'w9_wiring_request': 'w9_response',
             'payment_confirmation': 'payment_confirmation',
             'delegation_eytan': 'delegation_eytan',
-            'turnaround_expectation': 'turnaround_time'
+            'turnaround_expectation': 'turnaround_time',
         }
+        # Override/extend with JSON-defined patterns that reference templates
+        for jp in self._json_email_patterns:
+            action = jp.get("action", "")
+            name = jp.get("pattern_name", "")
+            if "template" in action.lower() and name:
+                # Extract template ID from action like "Use w9_response template"
+                parts = action.lower().replace("use ", "").replace(" template", "").strip()
+                if parts:
+                    mapping[name] = parts
 
         template_id = mapping.get(pattern_name)
         if template_id:

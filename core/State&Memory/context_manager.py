@@ -20,11 +20,28 @@ Enhanced with:
 
 import json
 import logging
+import os
 import re
 import time
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
+
+# ── Load context rules from playbook/context_rules.json ──────────────────────
+
+_CONTEXT_RULES: Dict[str, Any] = {}
+_PLAYBOOK_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
+    "playbook",
+)
+
+try:
+    with open(os.path.join(_PLAYBOOK_DIR, "context_rules.json"), "r") as _fh:
+        _CONTEXT_RULES = json.load(_fh)
+    logger.info("Loaded context_rules.json from %s", _PLAYBOOK_DIR)
+except (FileNotFoundError, json.JSONDecodeError) as _exc:
+    logger.warning("Could not load context_rules.json: %s – using defaults", _exc)
+
 
 # ── Semantic compatibility rules ─────────────────────────────────────────────
 # Maps action verbs to the subject types they are compatible with.
@@ -57,14 +74,33 @@ class ContextManager:
     def __init__(self, session_state):
         self.session = session_state
 
-        # Pronouns and references to watch for
-        self.pronouns = ["it", "that", "this", "them", "those", "the one"]
+        # Load pronoun/entity resolution config from context_rules.json
+        pronoun_cfg = _CONTEXT_RULES.get("pronoun_resolution", {})
+        self.pronouns = list(pronoun_cfg.keys()) if pronoun_cfg else [
+            "it", "that", "this", "them", "those", "the one",
+        ]
         self.relative_refs = [
             "last one",
             "previous",
             "earlier",
             "recent",
         ]
+
+        # Entity resolution rules (aliases, patterns, etc.) from JSON
+        self.entity_resolution = _CONTEXT_RULES.get("entity_resolution", {})
+        self.contact_aliases = self.entity_resolution.get("recipient", {}).get("aliases", {})
+
+        # Context persistence settings from JSON
+        persistence = _CONTEXT_RULES.get("context_persistence", {})
+        self._topic_stack_size = persistence.get("topic_stack_size", 20)
+        self._conversation_ttl = persistence.get("conversation_ttl_minutes", 60) * 60  # seconds
+        self._auto_forget = persistence.get("auto_forget", [])
+
+        # Disambiguation rules from JSON
+        self.disambiguation = _CONTEXT_RULES.get("disambiguation_rules", {})
+
+        # Context inference settings from JSON
+        self.context_inference = _CONTEXT_RULES.get("context_inference", {})
 
         # In-memory topic stack per user (LIFO)
         self._topic_stacks: Dict[int, List[Dict[str, Any]]] = {}
@@ -261,8 +297,8 @@ class ContextManager:
             "timestamp": time.time(),
         })
         # Keep stack bounded
-        if len(stack) > 20:
-            self._topic_stacks[user_id] = stack[-20:]
+        if len(stack) > self._topic_stack_size:
+            self._topic_stacks[user_id] = stack[-self._topic_stack_size:]
 
     def _pop_topic(self, user_id: int) -> Optional[Dict]:
         stack = self._topic_stacks.get(user_id, [])
@@ -282,7 +318,10 @@ class ContextManager:
 
     @staticmethod
     def _detect_topic_switch(text_lower: str) -> bool:
-        """Detect phrases like 'actually about that other thing'."""
+        """Detect phrases like 'actually about that other thing'.
+
+        Uses correction triggers from context_rules.json when available.
+        """
         switch_phrases = [
             "actually about",
             "about that other",
@@ -292,7 +331,21 @@ class ContextManager:
             "never mind that",
             "forget that",
         ]
+        # Also include correction triggers from context_rules.json
+        correction_cfg = _CONTEXT_RULES.get("context_inference", {}).get("correction_detection", {})
+        if correction_cfg.get("enabled"):
+            switch_phrases.extend(correction_cfg.get("triggers", []))
         return any(phrase in text_lower for phrase in switch_phrases)
+
+    # ── Entity resolution helpers (from context_rules.json) ────────────
+
+    def resolve_alias(self, name: str) -> Optional[str]:
+        """Resolve a contact alias to an email address using context_rules.json."""
+        return self.contact_aliases.get(name.lower())
+
+    def get_entity_config(self, entity_type: str) -> Dict[str, Any]:
+        """Get entity resolution config for a given type (recipient, task_id, etc.)."""
+        return self.entity_resolution.get(entity_type, {})
 
     # ── Implicit context injection ───────────────────────────────────────
 

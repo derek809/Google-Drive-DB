@@ -29,12 +29,30 @@ Usage:
 
 import json
 import logging
+import os
 from enum import Enum
 from dataclasses import dataclass, field, asdict
 from datetime import datetime
 from typing import Dict, Any, Optional, List
 
 logger = logging.getLogger(__name__)
+
+# ── Load workflow definitions from playbook/workflows.json ───────────────────
+_PLAYBOOK_DIR = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "playbook",
+)
+_WORKFLOWS_JSON: Dict[str, Any] = {}
+_WORKFLOWS_CONFIG: Dict[str, Any] = {}
+
+try:
+    with open(os.path.join(_PLAYBOOK_DIR, "workflows.json"), "r") as _fh:
+        _raw = json.load(_fh)
+        _WORKFLOWS_JSON = _raw.get("workflows", {})
+        _WORKFLOWS_CONFIG = _raw.get("config", {})
+    logger.info("Loaded workflows.json from %s (%d workflows)", _PLAYBOOK_DIR, len(_WORKFLOWS_JSON))
+except (FileNotFoundError, json.JSONDecodeError) as _exc:
+    logger.warning("Could not load workflows.json: %s – using defaults", _exc)
 
 
 class WorkflowState(Enum):
@@ -159,7 +177,12 @@ class WorkflowManager:
         """
         self.db = db_manager
         self._active_workflows: Dict[int, ActiveWorkflow] = {}  # user_id → workflow
-        self._workflow_timeout_minutes = 60  # Workflows expire after 1 hour
+        self._workflow_timeout_minutes = _WORKFLOWS_CONFIG.get("context_ttl_minutes", 60)
+        self._max_steps = _WORKFLOWS_CONFIG.get("max_steps", 5)
+        self._connectors = _WORKFLOWS_CONFIG.get("connectors", [". then", ". also", ". plus", "and then"])
+
+        # Named pipeline definitions from playbook/workflows.json
+        self.pipeline_definitions = _WORKFLOWS_JSON
 
         # Load active workflows from database
         if self.db:
@@ -427,6 +450,26 @@ class WorkflowManager:
         valid_actions.extend(['cancel'])
 
         return valid_actions
+
+    def get_pipeline(self, pipeline_name: str) -> Optional[Dict[str, Any]]:
+        """Get a named pipeline definition from workflows.json.
+
+        Returns the pipeline dict with 'description' and 'steps' keys,
+        or None if not found.
+        """
+        return self.pipeline_definitions.get(pipeline_name)
+
+    def list_pipelines(self) -> List[Dict[str, Any]]:
+        """List all available named pipelines from workflows.json."""
+        return [
+            {"name": name, "description": defn.get("description", ""), "steps": len(defn.get("steps", []))}
+            for name, defn in self.pipeline_definitions.items()
+        ]
+
+    def is_connector_phrase(self, text: str) -> bool:
+        """Check if text contains a workflow connector phrase (e.g. '. then', 'and then')."""
+        text_lower = text.lower()
+        return any(conn.lower() in text_lower for conn in self._connectors)
 
     # ==================
     # PERSISTENCE
