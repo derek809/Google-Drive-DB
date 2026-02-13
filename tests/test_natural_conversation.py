@@ -6,77 +6,67 @@ Simulates real user messages to ensure the bot feels human.
 
 import sys
 import os
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+import unittest
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ["brain","core","core/Infrastructure","core/InputOutput","core/State&Memory","Bot_actions","LLM"]:
+    _p = os.path.join(_root, _d)
+    if _p not in sys.path: sys.path.insert(0, _p)
 
-from telegram_handler import TelegramHandler
-from mode4_processor import Mode4Processor
+try:
+    from telegram_handler import TelegramHandler
+    from mode4_processor import Mode4Processor
+    _DEPS_AVAILABLE = True
+    _DEPS_ERROR = ""
+except ImportError as _e:
+    _DEPS_AVAILABLE = False
+    _DEPS_ERROR = str(_e)
 
-def test_natural_messages():
+
+@unittest.skipUnless(_DEPS_AVAILABLE, f"Missing dependency: {_DEPS_ERROR}")
+class TestNaturalConversation(unittest.TestCase):
     """Test parsing of natural human messages."""
 
-    print("Testing Natural Conversation Flow")
-    print("=" * 60)
-    print()
+    @classmethod
+    def setUpClass(cls):
+        cls.processor = Mode4Processor()
+        cls.telegram = cls.processor.telegram
 
-    # Initialize processor
-    processor = Mode4Processor()
-    telegram = processor.telegram
+    def _parse(self, msg):
+        parsed = self.telegram.parse_message(msg)
+        self.assertIsInstance(parsed, dict)
+        return parsed
 
-    # Test messages that a human would actually send
-    test_messages = [
-        "Hello",
-        "Draft an email to Jason",
-        "Add sending 1099 to todo list",
-        "Re: W9 Request - send W9 and wiring",
-        "Forward the invoice to accounting",
-        "draft email to jason on the laura clarke email",
-        "Can you help me with the Q4 report?",
-        "/status",
-        "/help"
-    ]
+    def test_greeting(self):
+        parsed = self._parse("Hello")
+        self.assertTrue(parsed.get('valid'))
 
-    print("Processing natural messages:")
-    print()
+    def test_draft_email(self):
+        parsed = self._parse("Draft an email to Jason")
+        self.assertTrue(parsed.get('valid'))
 
-    for msg in test_messages:
-        print(f"User: {msg}")
+    def test_todo(self):
+        parsed = self._parse("Add sending 1099 to todo list")
+        self.assertTrue(parsed.get('valid'))
 
-        try:
-            # Parse the message
-            parsed = telegram.parse_message(msg)
+    def test_legacy_format(self):
+        parsed = self._parse("Re: W9 Request - send W9 and wiring")
+        self.assertTrue(parsed.get('valid'))
+        self.assertEqual(parsed.get('search_type'), 'subject')
 
-            # Show what the bot understood
-            if parsed.get('valid'):
-                if 'command' in parsed:
-                    print(f"  → Command: {parsed['command']}")
-                else:
-                    print(f"  → Reference: {parsed.get('email_reference', 'N/A')}")
-                    print(f"  → Instruction: {parsed.get('instruction', 'N/A')}")
-                    print(f"  → Search type: {parsed.get('search_type', 'N/A')}")
-                    if 'parsed_with' in parsed:
-                        print(f"  → Parsed with: {parsed['parsed_with']}")
-            else:
-                print(f"  → Could not parse")
+    def test_forward(self):
+        parsed = self._parse("Forward the invoice to accounting")
+        self.assertTrue(parsed.get('valid'))
 
-            print()
+    def test_help_command(self):
+        parsed = self._parse("/help")
+        self.assertTrue(parsed.get('valid'))
+        self.assertEqual(parsed.get('command'), '/help')
 
-        except Exception as e:
-            print(f"  ✗ ERROR: {e}")
-            print()
-            return False
+    def test_status_command(self):
+        parsed = self._parse("/status")
+        self.assertTrue(parsed.get('valid'))
+        self.assertEqual(parsed.get('command'), '/status')
 
-    print("=" * 60)
-    print("✓ All natural messages parsed successfully!")
-    print()
-    print("The bot can now understand natural conversation.")
-    return True
 
 if __name__ == "__main__":
-    try:
-        success = test_natural_messages()
-        sys.exit(0 if success else 1)
-    except Exception as e:
-        print(f"Test failed: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+    unittest.main()

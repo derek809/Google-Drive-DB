@@ -522,15 +522,53 @@ class Mode4Processor:
         draft_url: str = '',
         notes: str = ''
     ):
-        """Update status in Google Sheets."""
-        # For now, just log the update
-        # TODO: Implement proper row lookup and update
+        """Update status in Google Sheets.
+
+        Looks up the row in the MCP queue sheet by thread_id and writes status
+        columns in-place.  Falls back to append-only logging if the row is not
+        found or the lookup fails.
+        """
         logger.info(
             f"Sheets update: thread_id={thread_id}, status={m1_status}, "
             f"confidence={confidence}, processed_by={processed_by}"
         )
 
-        # Append to a Mode 4 log sheet
+        # Try to find and update the existing row in the MCP queue sheet
+        row_updated = False
+        if thread_id:
+            try:
+                result = self.sheets.read_range(
+                    self.spreadsheet_id,
+                    f"{self.queue_sheet}!A:A"
+                )
+                if result.get('success') and result.get('values'):
+                    # Find the row that matches thread_id (column A)
+                    for idx, row in enumerate(result['values']):
+                        if row and str(row[0]).strip() == str(thread_id).strip():
+                            row_number = idx + 1  # Sheets is 1-indexed
+                            col = self.status_columns
+                            updates = {
+                                f"{self.queue_sheet}!{col['processed_by']}{row_number}": [[processed_by]],
+                                f"{self.queue_sheet}!{col['processing_mode']}{row_number}": [['mode4']],
+                                f"{self.queue_sheet}!{col['m1_status']}{row_number}": [[m1_status]],
+                                f"{self.queue_sheet}!{col['m1_notes']}{row_number}": [[notes[:200]]],
+                            }
+                            for range_notation, values in updates.items():
+                                self.sheets.write_range(
+                                    self.spreadsheet_id,
+                                    range_notation,
+                                    values
+                                )
+                            row_updated = True
+                            logger.info(f"Updated MCP row {row_number} for thread_id={thread_id}")
+                            break
+
+                if not row_updated:
+                    logger.info(f"thread_id={thread_id} not found in {self.queue_sheet}, will append to log")
+            except Exception as e:
+                logger.warning(f"Row lookup failed for thread_id={thread_id}: {e}")
+
+        # Always append to the Mode 4 log sheet for audit trail
         try:
             values = [[
                 datetime.now().isoformat(),

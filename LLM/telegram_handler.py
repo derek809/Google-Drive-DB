@@ -29,6 +29,9 @@ try:
     TELEGRAM_AVAILABLE = True
 except ImportError:
     TELEGRAM_AVAILABLE = False
+    # Provide stub types so method signatures don't crash at class-definition time
+    Update = None
+    ContextTypes = type('_Stub', (), {'DEFAULT_TYPE': None})()
 
 logger = logging.getLogger(__name__)
 
