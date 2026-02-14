@@ -28,6 +28,13 @@ from core.observability import (
     HealthChecker,
     CircuitBreaker,
 )
+from core.m1_model_router import M1ModelRouter
+from core.safety_interceptor import (
+    SafetyViolationError,
+    RiskAwareActionValidator,
+    risk_based_safety_interceptor,
+)
+from core.hybrid_intent_classifier import HybridIntentClassifier
 
 __all__ = [
     "ACTIONS",
@@ -53,4 +60,9 @@ __all__ = [
     "PerformanceTracker",
     "HealthChecker",
     "CircuitBreaker",
+    "M1ModelRouter",
+    "SafetyViolationError",
+    "RiskAwareActionValidator",
+    "risk_based_safety_interceptor",
+    "HybridIntentClassifier",
 ]

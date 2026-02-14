@@ -157,11 +157,11 @@ GEMINI_MAX_IMAGE_SIZE = 20 * 1024 * 1024
 # ============================================
 
 NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
-KIMI_MODEL = "moonshotai/kimi-k2-instruct"
+KIMI_MODEL = "moonshotai/kimi-k2.5"
 KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
-KIMI_TEMPERATURE = 0.6
-KIMI_TOP_P = 0.9
-KIMI_MAX_TOKENS = 4096
+KIMI_TEMPERATURE = 1.00
+KIMI_TOP_P = 1.00
+KIMI_MAX_TOKENS = 16384
 
 
 # ============================================
@@ -192,6 +192,19 @@ OLLAMA_REVIEW_THRESHOLD = 70
 API_RATE_LIMIT_SECONDS = 1.0
 API_TIMEOUT_SECONDS = 30
 MAX_BATCH_SIZE = 20
+
+
+# ============================================
+# MODE 4 MODEL ROUTING (litellm)
+# ============================================
+
+# Timeouts for litellm router
+OLLAMA_TIMEOUT = 10       # seconds for local Ollama calls
+API_TIMEOUT = 30          # seconds for remote API calls (Claude, Kimi, Gemini)
+
+# Fallback chain: ordered list of provider keys for the litellm Router.
+# M1ModelRouter maps these to actual model strings at runtime.
+FALLBACK_CHAIN = ["claude", "kimi", "ollama"]
 
 
 # ============================================
@@ -362,15 +375,3 @@ def validate_config():
         errors.append("GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)")
 
     return errors
-
-    # NVIDIA KIMI K2 API (Smart LLM alternative)
-# ============================================
-
-NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
-# Updated to Kimi 2.5
-KIMI_MODEL = "moonshotai/kimi-k2.5"
-KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
-# Updated parameters from your payload
-KIMI_TEMPERATURE = 1.00
-KIMI_TOP_P = 1.00
-KIMI_MAX_TOKENS = 16384

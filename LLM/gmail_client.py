@@ -565,6 +565,158 @@ class GmailClient:
 
         return self.search_emails(query, search_type="keyword", max_results=max_results)
 
+    # ==================
+    # SEND MESSAGE
+    # ==================
+
+    def send_message(
+        self,
+        to: str,
+        subject: str,
+        body: str,
+        thread_id: str = None,
+        reply_to_message_id: str = None,
+    ) -> Dict[str, Any]:
+        """
+        Send an email message directly.
+
+        For safety-aware sending, prefer execute_action() which applies
+        the RiskLevel safety gate.
+
+        Args:
+            to: Recipient email address
+            subject: Email subject
+            body: Email body text
+            thread_id: Optional thread ID (for replies)
+            reply_to_message_id: Optional message ID being replied to
+
+        Returns:
+            Dict with success status, message_id, thread_id
+        """
+        self._ensure_authenticated()
+
+        message = MIMEText(body)
+        message['to'] = to
+        message['subject'] = subject
+
+        # Add reply headers if this is a reply
+        if reply_to_message_id:
+            try:
+                original = self.service.users().messages().get(
+                    userId='me',
+                    id=reply_to_message_id,
+                    format='metadata',
+                    metadataHeaders=['Message-ID']
+                ).execute()
+                headers = {h['name']: h['value'] for h in original['payload'].get('headers', [])}
+                if 'Message-ID' in headers:
+                    message['In-Reply-To'] = headers['Message-ID']
+                    message['References'] = headers['Message-ID']
+            except Exception:
+                pass  # Continue without reply headers
+
+        raw = base64.urlsafe_b64encode(message.as_bytes()).decode('utf-8')
+        send_body = {'raw': raw}
+        if thread_id:
+            send_body['threadId'] = thread_id
+
+        try:
+            sent = self.service.users().messages().send(
+                userId='me',
+                body=send_body
+            ).execute()
+
+            return {
+                'success': True,
+                'message_id': sent.get('id'),
+                'thread_id': sent.get('threadId'),
+                'to': to,
+                'subject': subject,
+            }
+
+        except HttpError as e:
+            return {'success': False, 'error': str(e), 'error_type': 'HttpError'}
+
+    # ==================
+    # ACTION DISPATCHER (with safety gate)
+    # ==================
+
+    def execute_action(
+        self,
+        action: Dict[str, Any],
+        risk_level: str = "low",
+        user_confirmed: bool = False,
+    ) -> Dict[str, Any]:
+        """
+        Execute a Gmail action with safety gate.
+
+        RiskLevel.HIGH send actions are redirected to create_draft with
+        a [BOT DRAFT] subject prefix, unless user_confirmed=True.
+
+        Args:
+            action: Dict with:
+                - 'type': One of 'send', 'draft', 'forward'
+                - 'to': Recipient email
+                - 'subject': Email subject
+                - 'body': Email body
+                - 'thread_id': Optional thread ID
+                - 'reply_to_message_id': Optional message ID for replies
+                - 'message_id': Required for 'forward' type
+                - 'note': Optional note for forwarding
+            risk_level: 'low', 'medium', or 'high'
+            user_confirmed: If True, allows HIGH risk actions through
+
+        Returns:
+            Dict with result and any safety messages
+        """
+        action_type = action.get("type", "draft").lower()
+
+        # SAFETY GATE: HIGH risk sends become drafts
+        if action_type == "send" and risk_level == "high" and not user_confirmed:
+            subject = action.get("subject", "")
+            if not subject.startswith("[BOT DRAFT]"):
+                action["subject"] = f"[BOT DRAFT] {subject}"
+
+            result = self.create_draft(
+                to=action.get("to", ""),
+                subject=action["subject"],
+                body=action.get("body", ""),
+                thread_id=action.get("thread_id"),
+                reply_to_message_id=action.get("reply_to_message_id"),
+            )
+            result["safety_redirected"] = True
+            result["safety_message"] = (
+                "Email saved as draft instead of sending (HIGH risk action). "
+                "Review in Gmail and send manually, or confirm to send."
+            )
+            return result
+
+        # Normal execution
+        if action_type == "send":
+            return self.send_message(
+                to=action.get("to", ""),
+                subject=action.get("subject", ""),
+                body=action.get("body", ""),
+                thread_id=action.get("thread_id"),
+                reply_to_message_id=action.get("reply_to_message_id"),
+            )
+        elif action_type == "draft":
+            return self.create_draft(
+                to=action.get("to", ""),
+                subject=action.get("subject", ""),
+                body=action.get("body", ""),
+                thread_id=action.get("thread_id"),
+                reply_to_message_id=action.get("reply_to_message_id"),
+            )
+        elif action_type == "forward":
+            return self.forward_email(
+                message_id=action.get("message_id", ""),
+                to_address=action.get("to", ""),
+                additional_note=action.get("note", ""),
+            )
+        else:
+            return {"success": False, "error": f"Unknown action type: {action_type}"}
+
 
 # ==================
 # TESTING

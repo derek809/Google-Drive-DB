@@ -338,7 +338,84 @@ class DatabaseManager:
                 )
             """)
 
+            # Topic stacks for Mode 4 topic memory
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS topic_stacks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    topic TEXT NOT NULL,
+                    context_json TEXT DEFAULT '{}',
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    message_count INTEGER DEFAULT 0,
+                    status TEXT DEFAULT 'active'
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_topic_stacks_user
+                ON topic_stacks(user_id, status)
+            """)
+
+            # Context trims log (archived messages for Learning Loop visibility)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS context_trims (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    topic_stack_id INTEGER,
+                    trimmed_messages TEXT NOT NULL,
+                    reason TEXT,
+                    trimmed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (topic_stack_id) REFERENCES topic_stacks(id)
+                )
+            """)
+
+            # Topic transitions (for Learning Loop to correlate topic switches)
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS topic_transitions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    user_id INTEGER NOT NULL,
+                    from_topic TEXT,
+                    to_topic TEXT NOT NULL,
+                    trigger_message TEXT,
+                    transitioned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+                )
+            """)
+
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_topic_transitions_user
+                ON topic_transitions(user_id)
+            """)
+
             conn.commit()
+
+    # ==================
+    # CONVENIENCE EXECUTE (adapter for direct SQL callers)
+    # ==================
+
+    def execute(self, sql: str, params: tuple = ()) -> list:
+        """
+        Execute SQL and return all rows as list of dicts.
+
+        Convenience method for callers that don't need the full
+        context-manager pattern. For write operations, auto-commits.
+        """
+        with self.get_connection() as conn:
+            cursor = conn.execute(sql, params)
+            if sql.strip().upper().startswith(("INSERT", "UPDATE", "DELETE", "CREATE", "ALTER")):
+                conn.commit()
+            return [dict(row) for row in cursor.fetchall()]
+
+    def fetchall(self, sql: str, params: tuple = ()) -> list:
+        """Alias for execute() that makes read intent explicit."""
+        return self.execute(sql, params)
+
+    def fetchone(self, sql: str, params: tuple = ()) -> Optional[Dict]:
+        """Execute SQL and return first row as dict, or None."""
+        with self.get_connection() as conn:
+            cursor = conn.execute(sql, params)
+            row = cursor.fetchone()
+            return dict(row) if row else None
 
     # ==================
     # CLARIFICATION STATE
