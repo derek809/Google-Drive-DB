@@ -7,169 +7,179 @@ expected categories with appropriate confidence and parameter extraction.
 
 import os
 import sys
-import json
-import pytest
+import unittest
 
-# Ensure mode4/ is on the path
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+# Set up import paths
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ["brain","core","core/Infrastructure","core/InputOutput","core/State&Memory","Bot_actions","LLM"]:
+    _p = os.path.join(_root, _d)
+    if _p not in sys.path: sys.path.insert(0, _p)
 
-from core.intent_tree import IntentClassifier, IntentResult, DecisionNode
+from intent_tree import IntentClassifier, IntentResult, DecisionNode
 
 
-# ── Fixtures ─────────────────────────────────────────────────────────────────
-
-@pytest.fixture
-def classifier():
-    """Return an IntentClassifier using the default config or fallback tree."""
+def _classifier():
     return IntentClassifier()
 
 
-# ── Greeting / Casual ────────────────────────────────────────────────────────
+# -- Greeting / Casual -------------------------------------------------------
 
-class TestCasualClassification:
-    def test_hello(self, classifier):
-        result = classifier.classify("Hello")
-        assert result.category == "casual"
-        assert result.confidence == 1.0
+class TestCasualClassification(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
 
-    def test_hey(self, classifier):
-        result = classifier.classify("hey")
-        assert result.category == "casual"
+    def test_hello(self):
+        result = self.classifier.classify("Hello")
+        self.assertEqual(result.category, "casual")
+        self.assertEqual(result.confidence, 1.0)
 
-    def test_hi_there(self, classifier):
-        result = classifier.classify("hi there")
-        assert result.category == "casual"
+    def test_hey(self):
+        result = self.classifier.classify("hey")
+        self.assertEqual(result.category, "casual")
 
-    def test_good_morning(self, classifier):
-        result = classifier.classify("good morning")
-        assert result.category == "casual"
+    def test_hi_there(self):
+        result = self.classifier.classify("hi there")
+        self.assertEqual(result.category, "casual")
 
-    def test_thanks(self, classifier):
-        result = classifier.classify("thanks")
-        assert result.category == "casual"
+    def test_good_morning(self):
+        result = self.classifier.classify("good morning")
+        self.assertEqual(result.category, "casual")
 
-    def test_ok(self, classifier):
-        result = classifier.classify("ok")
-        assert result.category == "casual"
+    def test_thanks(self):
+        result = self.classifier.classify("thanks")
+        self.assertEqual(result.category, "casual")
 
-    def test_lol(self, classifier):
-        result = classifier.classify("lol")
-        assert result.category == "casual"
+    def test_ok(self):
+        result = self.classifier.classify("ok")
+        self.assertEqual(result.category, "casual")
 
-
-# ── Email Actions ────────────────────────────────────────────────────────────
-
-class TestEmailClassification:
-    def test_draft_email(self, classifier):
-        result = classifier.classify("draft email to John about the meeting")
-        assert result.category == "email_action"
-        assert result.confidence >= 0.8
-
-    def test_email_with_params(self, classifier):
-        result = classifier.classify("Email John about the meeting")
-        assert result.category == "email_action"
-        # Check parameter extraction
-        assert "recipient" in result.parameters or "topic" in result.parameters
-
-    def test_forward_email(self, classifier):
-        result = classifier.classify("forward the invoice to accounting")
-        assert result.category == "email_action"
-
-    def test_reply_to_email(self, classifier):
-        result = classifier.classify("reply to that email")
-        assert result.category == "email_action"
-
-    def test_search_email(self, classifier):
-        result = classifier.classify("search email from Jason")
-        assert result.category == "email_action"
-
-    def test_check_inbox(self, classifier):
-        result = classifier.classify("check my inbox")
-        assert result.category == "email_action"
+    def test_lol(self):
+        result = self.classifier.classify("lol")
+        self.assertEqual(result.category, "casual")
 
 
-# ── Sheet Actions ────────────────────────────────────────────────────────────
+# -- Email Actions ------------------------------------------------------------
 
-class TestSheetClassification:
-    def test_create_sheet(self, classifier):
-        result = classifier.classify("create a sheet with Q3 data")
-        assert result.category == "sheet_action"
-        assert result.confidence >= 0.8
+class TestEmailClassification(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
 
-    def test_spreadsheet(self, classifier):
-        result = classifier.classify("make a spreadsheet for the project")
-        assert result.category == "sheet_action"
+    def test_draft_email(self):
+        result = self.classifier.classify("draft email to John about the meeting")
+        self.assertEqual(result.category, "email_action")
+        self.assertGreaterEqual(result.confidence, 0.8)
 
-    def test_update_tracker(self, classifier):
-        result = classifier.classify("update the tracker with new numbers")
-        assert result.category == "sheet_action"
+    def test_email_with_params(self):
+        result = self.classifier.classify("Email John about the meeting")
+        self.assertEqual(result.category, "email_action")
+        self.assertTrue("recipient" in result.parameters or "topic" in result.parameters)
 
+    def test_forward_email(self):
+        result = self.classifier.classify("forward the invoice to accounting")
+        self.assertEqual(result.category, "email_action")
 
-# ── Workflow Actions ─────────────────────────────────────────────────────────
+    def test_reply_to_email(self):
+        result = self.classifier.classify("reply to that email")
+        self.assertEqual(result.category, "email_action")
 
-class TestWorkflowClassification:
-    def test_multi_step(self, classifier):
-        # Use input without email/sheet keywords so it falls through to multi-step check
-        result = classifier.classify("gather the report then summarize it")
-        assert result.category == "workflow_action"
-        assert result.confidence >= 0.5
+    def test_search_email(self):
+        result = self.classifier.classify("search email from Jason")
+        self.assertEqual(result.category, "email_action")
 
-    def test_then_keyword(self, classifier):
-        result = classifier.classify("create a draft and then send it")
-        # "draft" and "send" are email keywords; tree checks email before multi-step
-        assert result.category in ("workflow_action", "email_action")
-
-    def test_first_step(self, classifier):
-        # Use input without email/sheet keywords so multi-step indicators match
-        result = classifier.classify("first check the status, then notify the team")
-        assert result.category == "workflow_action"
-
-    def test_mixed_email_and_step(self, classifier):
-        # When input has both email keywords and multi-step indicators,
-        # tree correctly prioritizes the specific action (email)
-        result = classifier.classify("find the email then create a sheet from it")
-        assert result.category == "email_action"
+    def test_check_inbox(self):
+        result = self.classifier.classify("check my inbox")
+        self.assertEqual(result.category, "email_action")
 
 
-# ── Clarification Needed ────────────────────────────────────────────────────
+# -- Sheet Actions ------------------------------------------------------------
 
-class TestClarificationClassification:
-    def test_do_the_thing(self, classifier):
-        result = classifier.classify("do the thing")
-        assert result.category == "clarification_needed"
-        assert result.follow_up_question is not None
+class TestSheetClassification(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
 
-    def test_vague_request(self, classifier):
-        result = classifier.classify("handle it please")
-        assert result.category == "clarification_needed"
+    def test_create_sheet(self):
+        result = self.classifier.classify("create a sheet with Q3 data")
+        self.assertEqual(result.category, "sheet_action")
+        self.assertGreaterEqual(result.confidence, 0.8)
 
-    def test_ambiguous(self, classifier):
-        result = classifier.classify("can you take care of that")
-        assert result.category == "clarification_needed"
+    def test_spreadsheet(self):
+        result = self.classifier.classify("make a spreadsheet for the project")
+        self.assertEqual(result.category, "sheet_action")
 
-
-# ── IntentResult structure ───────────────────────────────────────────────────
-
-class TestIntentResult:
-    def test_result_fields(self, classifier):
-        result = classifier.classify("Hello")
-        assert hasattr(result, "category")
-        assert hasattr(result, "confidence")
-        assert hasattr(result, "parameters")
-        assert hasattr(result, "follow_up_question")
-
-    def test_result_is_namedtuple(self, classifier):
-        result = classifier.classify("Hello")
-        assert isinstance(result, IntentResult)
-
-    def test_parameters_is_dict(self, classifier):
-        result = classifier.classify("draft email to John")
-        assert isinstance(result.parameters, dict)
+    def test_update_tracker(self):
+        result = self.classifier.classify("update the tracker with new numbers")
+        self.assertEqual(result.category, "sheet_action")
 
 
-# ── DecisionNode ─────────────────────────────────────────────────────────────
+# -- Workflow Actions ---------------------------------------------------------
 
-class TestDecisionNode:
+class TestWorkflowClassification(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
+
+    def test_multi_step(self):
+        result = self.classifier.classify("gather the report then summarize it")
+        self.assertEqual(result.category, "workflow_action")
+        self.assertGreaterEqual(result.confidence, 0.5)
+
+    def test_then_keyword(self):
+        result = self.classifier.classify("create a draft and then send it")
+        self.assertIn(result.category, ("workflow_action", "email_action"))
+
+    def test_first_step(self):
+        result = self.classifier.classify("first check the status, then notify the team")
+        self.assertEqual(result.category, "workflow_action")
+
+    def test_mixed_email_and_step(self):
+        result = self.classifier.classify("find the email then create a sheet from it")
+        self.assertEqual(result.category, "email_action")
+
+
+# -- Clarification Needed ----------------------------------------------------
+
+class TestClarificationClassification(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
+
+    def test_do_the_thing(self):
+        result = self.classifier.classify("do the thing")
+        self.assertEqual(result.category, "clarification_needed")
+        self.assertIsNotNone(result.follow_up_question)
+
+    def test_vague_request(self):
+        result = self.classifier.classify("handle it please")
+        self.assertEqual(result.category, "clarification_needed")
+
+    def test_ambiguous(self):
+        result = self.classifier.classify("can you take care of that")
+        self.assertEqual(result.category, "clarification_needed")
+
+
+# -- IntentResult structure ---------------------------------------------------
+
+class TestIntentResult(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
+
+    def test_result_fields(self):
+        result = self.classifier.classify("Hello")
+        self.assertTrue(hasattr(result, "category"))
+        self.assertTrue(hasattr(result, "confidence"))
+        self.assertTrue(hasattr(result, "parameters"))
+        self.assertTrue(hasattr(result, "follow_up_question"))
+
+    def test_result_is_namedtuple(self):
+        result = self.classifier.classify("Hello")
+        self.assertIsInstance(result, IntentResult)
+
+    def test_parameters_is_dict(self):
+        result = self.classifier.classify("draft email to John")
+        self.assertIsInstance(result.parameters, dict)
+
+
+# -- DecisionNode -------------------------------------------------------------
+
+class TestDecisionNode(unittest.TestCase):
     def test_from_dict(self):
         data = {
             "name": "test",
@@ -179,25 +189,25 @@ class TestDecisionNode:
             "false_branch": {"name": "other", "action": "unclear", "confidence": 0.0},
         }
         node = DecisionNode.from_dict(data)
-        assert node.name == "test"
-        assert node.true_branch.action == "casual"
-        assert node.false_branch.action == "unclear"
+        self.assertEqual(node.name, "test")
+        self.assertEqual(node.true_branch.action, "casual")
+        self.assertEqual(node.false_branch.action, "unclear")
 
     def test_evaluate_keywords(self):
         node = DecisionNode(
             condition_type="keywords",
             condition_data=["hello", "hi"],
         )
-        assert node.evaluate("hello there", {}) is True
-        assert node.evaluate("goodbye", {}) is False
+        self.assertTrue(node.evaluate("hello there", {}))
+        self.assertFalse(node.evaluate("goodbye", {}))
 
     def test_evaluate_regex(self):
         node = DecisionNode(
             condition_type="regex",
             condition_data=[r"email\s+\w+\s+about"],
         )
-        assert node.evaluate("email John about meeting", {}) is True
-        assert node.evaluate("hello there", {}) is False
+        self.assertTrue(node.evaluate("email John about meeting", {}))
+        self.assertFalse(node.evaluate("hello there", {}))
 
     def test_extract_params(self):
         node = DecisionNode(
@@ -206,45 +216,47 @@ class TestDecisionNode:
             ],
         )
         params = node.extract("email to John")
-        assert params.get("recipient") == "John"
+        self.assertEqual(params.get("recipient"), "John")
 
 
-# ── Config loading ───────────────────────────────────────────────────────────
+# -- Config loading -----------------------------------------------------------
 
-class TestConfigLoading:
+class TestConfigLoading(unittest.TestCase):
     def test_default_tree_works_without_config(self):
-        # Use a non-existent config path to force fallback
         classifier = IntentClassifier(config_path="/tmp/nonexistent_intent_tree.json")
         result = classifier.classify("Hello")
-        assert result.category == "casual"
+        self.assertEqual(result.category, "casual")
 
-    def test_thresholds(self, classifier):
+    def test_thresholds(self):
+        classifier = _classifier()
         thresholds = classifier.thresholds
-        assert "auto_route" in thresholds
-        assert "suggest" in thresholds
-        assert "clarify" in thresholds
+        self.assertIn("auto_route", thresholds)
+        self.assertIn("suggest", thresholds)
+        self.assertIn("clarify", thresholds)
 
 
-# ── Edge cases ───────────────────────────────────────────────────────────────
+# -- Edge cases ---------------------------------------------------------------
 
-class TestEdgeCases:
-    def test_empty_string(self, classifier):
-        result = classifier.classify("")
-        # Should not crash
-        assert result.category is not None
+class TestEdgeCases(unittest.TestCase):
+    def setUp(self):
+        self.classifier = _classifier()
 
-    def test_very_long_input(self, classifier):
-        result = classifier.classify("hello " * 1000)
-        assert result.category is not None
+    def test_empty_string(self):
+        result = self.classifier.classify("")
+        self.assertIsNotNone(result.category)
 
-    def test_special_characters(self, classifier):
-        result = classifier.classify("email!!! @#$ John??")
-        assert result.category is not None
+    def test_very_long_input(self):
+        result = self.classifier.classify("hello " * 1000)
+        self.assertIsNotNone(result.category)
 
-    def test_none_context(self, classifier):
-        result = classifier.classify("Hello", context=None)
-        assert result.category == "casual"
+    def test_special_characters(self):
+        result = self.classifier.classify("email!!! @#$ John??")
+        self.assertIsNotNone(result.category)
+
+    def test_none_context(self):
+        result = self.classifier.classify("Hello", context=None)
+        self.assertEqual(result.category, "casual")
 
 
 if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+    unittest.main()

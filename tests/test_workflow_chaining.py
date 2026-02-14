@@ -2,6 +2,11 @@
 Test Workflow Chaining
 Tests multi-step workflow detection and execution.
 """
+import os, sys
+_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+for _d in ["brain","core","core/Infrastructure","core/InputOutput","core/State&Memory","Bot_actions","LLM"]:
+    _p = os.path.join(_root, _d)
+    if _p not in sys.path: sys.path.insert(0, _p)
 
 import asyncio
 from conversation_manager import ConversationManager
