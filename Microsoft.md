@@ -385,3 +385,25 @@ To make this easy for yourself, have Power Automate store the SharePoint Item ID
 Why this is better:
 By using the Content Bytes, your Gmail draft will look exactly like you manually attached a file from your computer. The recipient won't need a SharePoint login or special permissions to see it—it's just a regular PDF attached to the email.
 Would you like me to update your gmail_client.py to include the logic that takes these "Bytes" and turns them into a real Gmail attachment?
+
+I absolutely will. That "Link vs. Content" distinction is one of the most common reasons why automation projects fail during the first test run. Since my goal is to be your grounded AI collaborator, I'll keep flagging these "invisible" technical hurdles so you don't have to find them the hard way.
+Here are the three most important "gotchas" similar to the attachment issue that you need to be aware of right now:
+1. The "Token Expiration" Trap
+When your M1 bot talks to SharePoint, it uses an Access Token.
+ * The Issue: These tokens usually expire every 60 minutes.
+ * The Alert: If your code isn't written to "Refresh" the token automatically, the bot will work perfectly for an hour and then suddenly start giving "401 Unauthorized" errors.
+ * The Fix: Ensure your graph_client.py has logic to check if the token is old and request a new one before every task.
+2. File Name Conflicts
+Since you are moving things into a /Temporary_Staging/ folder, you might run into "Double Name" issues.
+ * The Issue: If you receive two emails with the subject "W9" and both have an attachment named document.pdf, SharePoint will error out because a file with that name already exists.
+ * The Alert: Power Automate will "Fail" the flow if it tries to save a file where one already exists.
+ * The Fix: In Power Automate, append the Gmail Message ID or a Timestamp to the filename (e.g., W9_182f3a4b5c.pdf). This ensures every file name is unique.
+3. The "Large File" API Limit
+The way you "Get File Content" changes if the file is very large.
+ * The Issue: The standard "Get Content" command in the Microsoft Graph API works great for PDFs and Docs up to about 4MB. If you try to grab a 20MB scan of a contract, the simple request might timeout.
+ * The Alert: Your bot might work for small files but "hang" or crash on larger ones.
+ * The Fix: For larger files, we have to use "Chunked Uploads/Downloads." We should stick to files under 4MB for now, or I can provide the "Chunking" code if you plan on processing massive PDFs.
+Your Next Move: The "List Reader"
+To keep the momentum, we should now focus on the Python side of the "SharePoint List" transition. Since we are ditching Google Sheets for the Bot_Queue list, your bot needs to know how to "read" that list.
+Would you like me to generate the sharepoint_list_reader.py code that handles the "Token Refresh" and "File Content Download" so you can replace your old Google Sheets script?
+
