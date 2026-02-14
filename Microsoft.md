@@ -1,6 +1,7 @@
-I'll refine your prompt into a clean, structured format optimized for Claude Code. This removes conversational filler, tightens requirements, and ensures precise execution.
+I understand. You're replacing Google Docs with OneNote for the Idea Board workflow. Since you're downloading the OneNote app, the hybrid architecture simplifies: Power Automate creates OneNote pages instead of Google Docs, and your bot reads/updates OneNote content via Graph API rather than Google Docs.
+Here's the updated prompt:
 Claude Code Prompt: Hybrid MCP System Migration
-Migrate an existing Gmail + Google Sheets automation system to a hybrid Microsoft 365 backend while preserving Gmail and Google Docs functionality.
+Migrate an existing Gmail + Google Sheets automation system to a hybrid Microsoft 365 backend, using OneNote for idea documentation (replacing Google Docs).
 Architecture
 Current State:
 •  Email: Gmail with [MCP] label triggers
@@ -13,35 +14,34 @@ Target State:
 •  Database: Microsoft Lists (replaces Sheets)
 •  Storage: SharePoint primary, Google Drive fallback
 •  Processing: Local Python bot (Graph API integration)
-•  Documents: Power Automate creates Google Docs; bot reads/updates only
+•  Documents: OneNote (Power Automate creates pages; bot reads/updates via Graph API)
 Phase 1: Directory Structure
-Create exactly this structure:
 project_root/
 ├── active/
 │   ├── graph_client.py              # NEW: MSAL auth, Graph API client
 │   ├── sharepoint_list_reader.py    # NEW: List operations
 │   ├── file_fetcher.py              # MODIFIED: Hybrid SharePoint + Drive
-│   ├── google_docs_client.py        # MODIFIED: Read/update only, no create
-│   ├── mode4_processor.py           # MODIFIED: Polls Lists, not Gmail
+│   ├── onenote_client.py            # NEW: Read/update OneNote pages
+│   ├── mode4_processor.py           # MODIFIED: Polls Lists, uses OneNote
 │   └── m1_config.py                 # MODIFIED: Add M365 credentials
 ├── possibly_deprecating/
 │   ├── sheets_client.py             # ARCHIVE: Full Sheets client
 │   ├── file_fetcher.py              # ARCHIVE: Drive-only version
-│   ├── google_docs_client.py        # ARCHIVE: Full CRUD version
+│   ├── google_docs_client.py        # ARCHIVE: Full CRUD version (DEPRECATED)
 │   └── mode4_processor.py           # ARCHIVE: Gmail polling version
 ├── flows/                           # NEW: Power Automate JSON templates
 ├── tests/                           # NEW: Unit test stubs
 ├── setup_m365_lists.py              # NEW: List provisioning script
+├── setup_onenote.py                 # NEW: OneNote notebook provisioning
 ├── migration_validator.py           # NEW: Data integrity checker
 ├── rollback.py                      # NEW: Reversion script
 ├── .env.template                    # NEW: Environment variables
 └── README_MIGRATION.md              # NEW: Migration documentation
 File Handling Rules:
-•  Copy (don't move) existing files to possibly_deprecating/
-•  Add header to all archived files: # DEPRECATED: See active/[new_file].py
-•  Mark all modified functions with: # MODIFIED: [YYYY-MM-DD] - [description]
+•  Copy existing files to possibly_deprecating/
+•  Add header to archived files: # DEPRECATED: See active/[new_file].py
+•  Mark modified functions: # MODIFIED: [YYYY-MM-DD] - [description]
 Phase 2: Microsoft Lists Schema
-Create these lists via Graph API in setup_m365_lists.py:
 1.  Action_Items (replaces Queue sheet)
 Column	Type	Notes
 TaskName	Title	Primary identifier
@@ -50,7 +50,7 @@ Source	Choice	Email, Manual, API
 EmailID	Text	Gmail message ID
 Priority	Choice	High, Normal, Low
 FileLink	Hyperlink	SharePoint file URL
-FileID	Text	Critical: SharePoint drive item ID for content retrieval
+FileID	Text	SharePoint drive item ID for content retrieval
 CreatedDate	DateTime	Auto-set
 2.  Brain_Rules (replaces Patterns sheet)
 Column	Type
@@ -65,93 +65,71 @@ Email	Text
 Context	MultiLineText
 LastContact	DateTime
 4.  Idea_Board (new)
-Column	Type
+Column	Type	Notes
 IdeaName	Title
-Status	Choice
-GoogleDocLink	Hyperlink
+Status	Choice	Draft, Developing, Archived
+OneNoteLink	Hyperlink	URL to OneNote page
+OneNotePageID	Text	Graph API page identifier
 Notes	MultiLineText
-CreatedDate	DateTime
+CreatedDate	DateTime	Auto-set
 ----
 Phase 3: Core Components
 3.1 graph_client.py
-Requirements:
-•  MSAL client credentials flow
-•  Auto token refresh (check expiry before each call)
+•  MSAL client credentials flow with auto token refresh
 •  Methods:
-•  get_access_token() → str
-•  get_list_items(list_name, filter_query=None) → List[Dict]
-•  create_list_item(list_name, fields) → Dict
-•  update_list_item(list_name, item_id, fields) → Dict
-•  delete_list_item(list_name, item_id) → bool
-•  Critical: get_file_content(file_id) → bytes (uses /content endpoint, not metadata)
-•  Environment variables: TENANT_ID, CLIENT_ID, CLIENT_SECRET, SHAREPOINT_SITE_ID
-•  Error handling: Specific exceptions per endpoint with full URL in message
+•  get_access_token(), get_list_items(), create_list_item(), update_list_item(), delete_list_item()
+•  Critical: get_file_content(file_id) → bytes (uses /content endpoint)
+•  NEW: get_onenote_page_content(page_id) → HTML str
+•  NEW: update_onenote_page_content(page_id, html_content) → bool
+•  Environment: TENANT_ID, CLIENT_ID, CLIENT_SECRET, SHAREPOINT_SITE_ID, ONENOTE_NOTEBOOK_ID
+•  Error handling: Specific exceptions with full endpoint URLs
 3.2 sharepoint_list_reader.py
-Requirements:
-•  get_pending_actions() → Query Action_Items where Status = 'Pending', return list
-•  get_brain_rules() → Fetch all Brain_Rules, return list
-•  get_vip_context(email) → Lookup VIP_Network by Email, return Context string
-•  update_action_status(item_id, new_status) → Patch Action_Items, return success bool
-•  get_action_with_file(item_id) → Return action dict including FileID for download
+•  get_pending_actions(), get_brain_rules(), get_vip_context(email), update_action_status(item_id, new_status)
+•  get_action_with_file(item_id) → includes FileID
+•  NEW: get_idea_board_item(item_id) → includes OneNotePageID
 3.3 file_fetcher.py (Modified)
-Requirements:
 •  get_file(file_path_or_id, source='auto') → bytes
-•  If source='sharepoint' or source='auto': Try SharePoint first using FileID
-•  If source='drive' or SharePoint fails: Fall back to Google Drive
-•  Preserve existing Google Drive search functionality
-•  Critical: Never return webUrl; always return content bytes
-3.4 google_docs_client.py (Modified)
+•  Try SharePoint first (using FileID), fall back to Google Drive
+•  Never return webUrl; always content bytes
+3.4 onenote_client.py (NEW)
 Requirements:
-•  REMOVE: All document creation functions
-•  read_doc_by_url(url) → str (existing)
-•  update_doc_content(url, content) → bool (existing)
-•  read_doc_by_list_item(sharepoint_item) → str (extracts GoogleDocLink from SharePoint dict)
-•  Add deprecation warnings if creation methods called
+•  get_page_by_url(url) → page dict with ID and content
+•  get_page_by_id(page_id) → HTML content
+•  update_page_content(page_id, html_content) → bool (appends/updates content)
+•  read_page_from_list_item(sharepoint_item) → str (extracts OneNoteLink, fetches content)
+•  Note: OneNote pages are immutable; updates create new revisions. Handle by appending content or creating new pages for major changes.
 3.5 mode4_processor.py (Modified)
-Requirements:
 •  REPLACE: check_gmail() → check_action_items_list()
-•  Polling loop targets SharePoint Action_Items, not Gmail API
+•  Polling loop targets SharePoint Action_Items
 •  Processing flow:
 1.  Get pending actions
 2.  Update status to 'Processing'
-3.  If FileID present: graph_client.get_file_content() → bytes
-4.  If GoogleDocLink present: google_docs_client.read_doc_by_list_item()
+3.  If FileID: graph_client.get_file_content() → bytes
+4.  If OneNoteLink present: onenote_client.read_page_from_list_item()
 5.  Process with Ollama (unchanged)
 6.  Draft email (unchanged)
-7.  Update action status to 'Complete' or 'Failed'
-•  Keep Ollama integration exactly as-is
-•  Keep email drafting logic exactly as-is
+7.  If idea processed: Update OneNote page with results/summary
+8.  Update action status to 'Complete' or 'Failed'
 ----
 Phase 4: Power Automate Flows
-Generate JSON templates in /flows/:
-Flow A: Email Onboarding
+Flow A: Email Onboarding (unchanged)
 •  Trigger: Gmail label [MCP] added
-•  Actions:
-1.  Save attachment to SharePoint /Temporary_Staging/ with naming pattern: {Subject}{MessageID}{Timestamp}.{ext}
-2.  Create Action_Items item:
-•  TaskName = Subject
-•  EmailID = MessageID
-•  FileLink = SharePoint webUrl
-•  FileID = SharePoint driveItemId (critical for bot retrieval)
-•  Status = Pending
-•  Source = Email
-Flow B: Email Offboarding
+•  Save attachment to /Temporary_Staging/ with {Subject}{MessageID}{Timestamp}.{ext}
+•  Create Action_Items with FileID and FileLink
+Flow B: Email Offboarding (unchanged)
 •  Trigger: Gmail label [MCP] removed
-•  Actions:
-3.  Get Action_Items where EmailID = MessageID
-4.  Delete list item(s)
-5.  Delete file from /Temporary_Staging/
-Flow C: Idea Board Bridge
+•  Delete Action_Items and staging files
+Flow C: Idea Board → OneNote Bridge (MODIFIED)
 •  Trigger: New item in Idea_Board
 •  Actions:
-6.  Create Google Doc in /MCP_Project_Brains/ named {IdeaName}.html
-7.  Content: HTML template with title, creation date, placeholder body
-8.  Update Idea_Board item: GoogleDocLink = Doc URL
-Flow D: 60-Day Reaper
-•  Trigger: Daily recurrence
-•  Logic:
-•  /Temporary_Staging/ files > 30 days → Move to /Garbage_Folder/
-•  /Garbage_Folder/ files > 60 days → Permanent delete
+1.  Create OneNote page in designated notebook (e.g., "MCP Ideas")
+•  Title: {IdeaName}
+•  Initial content: Template with title, creation date, status, and placeholder for bot input
+2.  Update Idea_Board item:
+•  OneNoteLink = Page URL (webUrl)
+•  OneNotePageID = Page ID (for Graph API access)
+Flow D: 60-Day Reaper (unchanged)
+•  Daily cleanup of staging and garbage folders
 ----
 Phase 5: Configuration & Environment
 .env.template:
@@ -161,62 +139,57 @@ CLIENT_ID=
 CLIENT_SECRET=
 SHAREPOINT_SITE_ID=
 SHAREPOINT_SITE_URL=
-Google (existing)
+ONENOTE_NOTEBOOK_ID=          # NEW: Target notebook for ideas
+ONENOTE_NOTEBOOK_NAME=        # NEW: Display name
+Google (existing - Drive only, no Docs)
 GOOGLE_CREDENTIALS_PATH=
 GMAIL_USER_ID=
 Ollama (existing)
 OLLAMA_BASE_URL=
 ----
 Code Quality Standards
-All new/modified files must include:
-•  Type hints (Python 3.9+)
-•  Google-style docstrings
-•  Specific exception handling with endpoint URLs in messages
-•  Python logging module (not print)
+•  Type hints, Google docstrings, specific error handling with endpoint URLs
+•  Python logging module
 •  Unit test stubs in /tests/
 Migration Safety
-migration_validator.py requirements:
-•  Compare Google Sheets row counts to SharePoint List counts
-•  Validate all Gmail [MCP] labels have corresponding Action_Items
-•  Check for orphaned files in staging folders
-•  Output: Checklist format with ✓/✗ per item
-rollback.py requirements:
-•  Restore Google-only mode
-•  Disable Power Automate flows (documentation only, manual step)
-•  Revert to v1-google-only git tag
+migration_validator.py:
+•  Compare Google Sheets to SharePoint Lists
+•  Validate Gmail [MCP] labels match Action_Items
+•  NEW: Verify OneNote notebook accessible via Graph API
+•  Check for orphaned files
+rollback.py:
+•  Restore Google-only mode (including Google Docs if needed)
+•  Document manual OneNote export procedure if reverting
 Critical Technical Constraints
-1.  File Content vs. Metadata: Always use /content endpoint for file bytes, never webUrl
-2.  Token Refresh: Check token expiry before every Graph API call; auto-refresh if <5 min remaining
-3.  File Naming: Power Automate must append MessageID + Timestamp to prevent collisions
-4.  Size Limits: Support files up to 4MB via standard download; document chunked approach for larger files
-5.  FileID Storage: Action_Items must store SharePoint driveItemId (FileID), not just URL
+1.  File Content: Always use /content endpoint for bytes, never metadata URLs
+2.  Token Refresh: Auto-refresh if <5 min remaining
+3.  File Naming: Append MessageID + Timestamp in Power Automate
+4.  OneNote Immutability: Pages are append-only; design workflow around creating new pages or appending sections rather than overwriting
+5.  OneNote Page IDs: Store both webUrl (for human access) and Graph API page ID (for bot access) in Idea_Board
 ----
 Deliverables Checklist
-•  [ ] All files in /active/ with modification headers
-•  [ ] All archived files in /possibly_deprecating/ with deprecation notices
-•  [ ] Power Automate JSON templates in /flows/
-•  [ ] README_MIGRATION.md with architecture diagram
-•  [ ] .env.template with all variables
-•  [ ] setup_m365_lists.py (idempotent list creation)
-•  [ ] migration_validator.py (pre/post flight checks)
-•  [ ] rollback.py (emergency revert)
-•  [ ] Unit test stubs in /tests/
+•  [ ] All files in /active/ including onenote_client.py
+•  [ ] setup_onenote.py for notebook provisioning
+•  [ ] Power Automate Flow C updated for OneNote (not Google Docs)
+•  [ ] Archived google_docs_client.py marked deprecated
+•  [ ] Migration validator checks OneNote connectivity
+•  [ ] Documentation updated for OneNote app workflow
 Testing Requirements
-Before deployment, verify:
-•  [ ] Graph API authentication with auto-refresh
-•  [ ] All 4 SharePoint Lists created programmatically
-•  [ ] Action_Items polling detects new items within 5 seconds
-•  [ ] File fetch from SharePoint returns bytes, not URL
-•  [ ] Google Doc read via SharePoint link succeeds
-•  [ ] Status updates propagate to SharePoint
-•  [ ] Migration validator runs with zero errors
-Error Messages: Must include specific API endpoint that failed (e.g., "Graph API Error: GET https://graph.microsoft.com/v1.0/sites/{id}/lists/Action_Items/items").
+•  [ ] Graph API authentication
+•  [ ] All 4 SharePoint Lists created
+•  [ ] OneNote notebook created and accessible
+•  [ ] Power Automate creates OneNote page and stores PageID
+•  [ ] Bot reads OneNote content via Graph API
+•  [ ] Bot updates/appends OneNote content
+•  [ ] Migration validator passes
 Execution Priority
-1.  Generate graph_client.py with robust token handling
-2.  Generate setup_m365_lists.py for list provisioning
-3.  Generate sharepoint_list_reader.py with FileID support
-4.  Generate modified file_fetcher.py with hybrid logic
-5.  Generate Power Automate Flow A and B JSON
-6.  Generate migration_validator.py
-7.  Generate remaining files
+1.  graph_client.py (include OneNote methods)
+2.  setup_m365_lists.py
+3.  setup_onenote.py (provision notebook)
+4.  sharepoint_list_reader.py
+5.  onenote_client.py
+6.  file_fetcher.py
+7.  Power Automate Flow C (OneNote version)
+8.  mode4_processor.py
+9.  migration_validator.py
 Do not proceed to next file until previous passes conceptual review.
