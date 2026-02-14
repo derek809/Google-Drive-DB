@@ -1,129 +1,160 @@
+I'll refine your prompt into a clean, structured format optimized for Claude Code. This removes conversational filler, tightens requirements, and ensures precise execution.
 Claude Code Prompt: Hybrid MCP System Migration
-
-I need to migrate my existing Gmail + Google Sheets automation system to a hybrid architecture using Microsoft 365 as the backend while preserving Gmail and Google Docs functionality.
-
-## Current System Architecture
-- Email: Gmail with [MCP] label triggers
-- Database: Google Sheets (Queue, Patterns, Contacts)
-- Storage: Google Drive for documents and attachments
-- Processing: Local Python bot on M1 Mac using Ollama
-- Document Creation: Google Docs API
-
-## Target Hybrid Architecture
-- Email: Keep Gmail (unchanged)
-- Database: Microsoft Lists (replaces Google Sheets)
-- Storage: SharePoint + Google Drive hybrid
-- Processing: Local Python bot (updated to use Graph API)
-- Document Creation: Power Automate → Google Docs (bot reads existing docs)
-
-## Project Requirements
-
-### Phase 1: Create New Directory Structure
-Create a new folder structure that preserves the old system:
-
-
+Migrate an existing Gmail + Google Sheets automation system to a hybrid Microsoft 365 backend while preserving Gmail and Google Docs functionality.
+Architecture
+Current State:
+•  Email: Gmail with [MCP] label triggers
+•  Database: Google Sheets (Queue, Patterns, Contacts)
+•  Storage: Google Drive
+•  Processing: Local Python bot (M1 Mac, Ollama)
+•  Documents: Google Docs API (full CRUD)
+Target State:
+•  Email: Gmail (unchanged)
+•  Database: Microsoft Lists (replaces Sheets)
+•  Storage: SharePoint primary, Google Drive fallback
+•  Processing: Local Python bot (Graph API integration)
+•  Documents: Power Automate creates Google Docs; bot reads/updates only
+Phase 1: Directory Structure
+Create exactly this structure:
 project_root/
-├── active/                    # New hybrid system code
-│   ├── graph_client.py       # NEW: Microsoft Graph API client
-│   ├── sharepoint_list_reader.py  # NEW: Replaces sheets reader
-│   ├── file_fetcher.py       # MODIFIED: Hybrid SharePoint + Drive
-│   ├── google_docs_client.py # MODIFIED: Read-only mode
-│   ├── mode4_processor.py    # MODIFIED: Uses Lists instead of Sheets
-│   └── m1_config.py          # MODIFIED: Add M365 credentials
-├── possibly_deprecating/     # Old Google-only code
-│   ├── sheets_client.py      # OLD: Google Sheets client
-│   ├── file_fetcher.py       # OLD: Drive-only version
-│   ├── google_docs_client.py # OLD: Full CRUD version
-│   └── mode4_processor.py    # OLD: Gmail polling version
-└── README_MIGRATION.md       # Documentation of changes
-
-
-### Phase 2: Microsoft 365 Backend Setup
-Generate code to create these Microsoft Lists via Graph API:
-
-1. **Action_Items** (replaces Queue sheet)
-   - Columns: TaskName (Title), Status (Choice), Source (Choice), EmailID (Text), Priority (Choice), FileLink (Hyperlink), CreatedDate (DateTime)
-
-2. **Brain_Rules** (replaces Patterns sheet)
-   - Columns: RuleName (Title), Keywords (Text), ConfidenceScore (Number), ActionType (Choice)
-
-3. **VIP_Network** (replaces Contacts sheet)
-   - Columns: Name (Title), Email (Text), Context (MultiLineText), LastContact (DateTime)
-
-4. **Idea_Board** (new brainstorming hub)
-   - Columns: IdeaName (Title), Status (Choice), GoogleDocLink (Hyperlink), Notes (MultiLineText), CreatedDate (DateTime)
-
-### Phase 3: Core Migration Components
-
-#### 3.1 Authentication Setup
-Create `graph_client.py` with:
-- MSAL authentication using client credentials flow
-- Methods: `get_access_token()`, `get_list_items()`, `create_list_item()`, `update_list_item()`, `delete_list_item()`
-- Error handling for token refresh
-- Configuration from environment variables
-
-#### 3.2 SharePoint Integration
-Create `sharepoint_list_reader.py` with:
-- `get_pending_actions()` - Query Action_Items where Status = 'Pending'
-- `get_brain_rules()` - Fetch all active rules
-- `get_vip_context(email)` - Lookup contact context
-- `update_action_status(item_id, new_status)` - Mark items as Processing/Complete
-
-#### 3.3 Hybrid File Fetcher
-Modify `file_fetcher.py` to:
-- Check SharePoint Document Library first (for Power Automate-saved email attachments)
-- Fall back to Google Drive if not found in SharePoint
-- Maintain existing Google Drive search functionality
-- Add method `get_file_from_sharepoint(file_path)`
-
-#### 3.4 Google Docs Client Update
-Modify `google_docs_client.py` to:
-- REMOVE: Document creation functions (Power Automate handles this)
-- KEEP: Read document content by URL
-- KEEP: Update document content
-- NEW: Method `read_doc_by_list_link(sharepoint_item)` that extracts Google Doc URL from SharePoint item
-
-#### 3.5 Main Processor Update
-Modify `mode4_processor.py` to:
-- REPLACE: Gmail polling loop → SharePoint List polling loop
-- NEW: `check_action_items_list()` instead of `check_gmail()`
-- When processing item with GoogleDocLink: read context from Google Doc
-- Update SharePoint item status as work progresses
-- KEEP: Ollama integration unchanged
-- KEEP: Email drafting logic unchanged
-
-### Phase 4: Power Automate Flow Specifications
-Generate JSON templates for these flows:
-
-**Flow A: Email Onboarding (Gmail → SharePoint)**
-- Trigger: Gmail label [MCP] added
-- Action 1: Save attachment to SharePoint `/Temporary_Staging/`
-- Action 2: Create item in Action_Items list
-  - Map: Subject → TaskName, MessageID → EmailID, AttachmentLink → FileLink
-  - Set Status = 'Pending', Source = 'Email'
-
-**Flow B: Email Offboarding (Label Removal Cleanup)**
-- Trigger: Gmail label [MCP] removed
-- Action 1: Get items from Action_Items where EmailID = MessageID
-- Action 2: Delete SharePoint list item
-- Action 3: Delete file from `/Temporary_Staging/`
-
-**Flow C: Idea Board → Google Docs Bridge**
-- Trigger: New item created in Idea_Board list
-- Action 1: Create Google Doc in `/MCP_Project_Brains/`
-  - Filename: `{IdeaName}.html`
-  - Content: Basic HTML template with title and creation date
-- Action 2: Update SharePoint item's GoogleDocLink field with Doc URL
-
-**Flow D: 60-Day Reaper (Maintenance)**
-- Trigger: Recurrence (daily)
-- Logic 1: Files in `/Temporary_Staging/` > 30 days → Move to `/Garbage_Folder/`
-- Logic 2: Files in `/Garbage_Folder/` > 30 days → Permanent delete
-
-### Phase 5: Configuration & Environment Setup
-Create `.env.template` with:
-
-
+├── active/
+│   ├── graph_client.py              # NEW: MSAL auth, Graph API client
+│   ├── sharepoint_list_reader.py    # NEW: List operations
+│   ├── file_fetcher.py              # MODIFIED: Hybrid SharePoint + Drive
+│   ├── google_docs_client.py        # MODIFIED: Read/update only, no create
+│   ├── mode4_processor.py           # MODIFIED: Polls Lists, not Gmail
+│   └── m1_config.py                 # MODIFIED: Add M365 credentials
+├── possibly_deprecating/
+│   ├── sheets_client.py             # ARCHIVE: Full Sheets client
+│   ├── file_fetcher.py              # ARCHIVE: Drive-only version
+│   ├── google_docs_client.py        # ARCHIVE: Full CRUD version
+│   └── mode4_processor.py           # ARCHIVE: Gmail polling version
+├── flows/                           # NEW: Power Automate JSON templates
+├── tests/                           # NEW: Unit test stubs
+├── setup_m365_lists.py              # NEW: List provisioning script
+├── migration_validator.py           # NEW: Data integrity checker
+├── rollback.py                      # NEW: Reversion script
+├── .env.template                    # NEW: Environment variables
+└── README_MIGRATION.md              # NEW: Migration documentation
+File Handling Rules:
+•  Copy (don't move) existing files to possibly_deprecating/
+•  Add header to all archived files: # DEPRECATED: See active/[new_file].py
+•  Mark all modified functions with: # MODIFIED: [YYYY-MM-DD] - [description]
+Phase 2: Microsoft Lists Schema
+Create these lists via Graph API in setup_m365_lists.py:
+1.  Action_Items (replaces Queue sheet)
+Column	Type	Notes
+TaskName	Title	Primary identifier
+Status	Choice	Pending, Processing, Complete, Failed
+Source	Choice	Email, Manual, API
+EmailID	Text	Gmail message ID
+Priority	Choice	High, Normal, Low
+FileLink	Hyperlink	SharePoint file URL
+FileID	Text	Critical: SharePoint drive item ID for content retrieval
+CreatedDate	DateTime	Auto-set
+2.  Brain_Rules (replaces Patterns sheet)
+Column	Type
+RuleName	Title
+Keywords	Text
+ConfidenceScore	Number
+ActionType	Choice
+3.  VIP_Network (replaces Contacts sheet)
+Column	Type
+Name	Title
+Email	Text
+Context	MultiLineText
+LastContact	DateTime
+4.  Idea_Board (new)
+Column	Type
+IdeaName	Title
+Status	Choice
+GoogleDocLink	Hyperlink
+Notes	MultiLineText
+CreatedDate	DateTime
+----
+Phase 3: Core Components
+3.1 graph_client.py
+Requirements:
+•  MSAL client credentials flow
+•  Auto token refresh (check expiry before each call)
+•  Methods:
+•  get_access_token() → str
+•  get_list_items(list_name, filter_query=None) → List[Dict]
+•  create_list_item(list_name, fields) → Dict
+•  update_list_item(list_name, item_id, fields) → Dict
+•  delete_list_item(list_name, item_id) → bool
+•  Critical: get_file_content(file_id) → bytes (uses /content endpoint, not metadata)
+•  Environment variables: TENANT_ID, CLIENT_ID, CLIENT_SECRET, SHAREPOINT_SITE_ID
+•  Error handling: Specific exceptions per endpoint with full URL in message
+3.2 sharepoint_list_reader.py
+Requirements:
+•  get_pending_actions() → Query Action_Items where Status = 'Pending', return list
+•  get_brain_rules() → Fetch all Brain_Rules, return list
+•  get_vip_context(email) → Lookup VIP_Network by Email, return Context string
+•  update_action_status(item_id, new_status) → Patch Action_Items, return success bool
+•  get_action_with_file(item_id) → Return action dict including FileID for download
+3.3 file_fetcher.py (Modified)
+Requirements:
+•  get_file(file_path_or_id, source='auto') → bytes
+•  If source='sharepoint' or source='auto': Try SharePoint first using FileID
+•  If source='drive' or SharePoint fails: Fall back to Google Drive
+•  Preserve existing Google Drive search functionality
+•  Critical: Never return webUrl; always return content bytes
+3.4 google_docs_client.py (Modified)
+Requirements:
+•  REMOVE: All document creation functions
+•  read_doc_by_url(url) → str (existing)
+•  update_doc_content(url, content) → bool (existing)
+•  read_doc_by_list_item(sharepoint_item) → str (extracts GoogleDocLink from SharePoint dict)
+•  Add deprecation warnings if creation methods called
+3.5 mode4_processor.py (Modified)
+Requirements:
+•  REPLACE: check_gmail() → check_action_items_list()
+•  Polling loop targets SharePoint Action_Items, not Gmail API
+•  Processing flow:
+1.  Get pending actions
+2.  Update status to 'Processing'
+3.  If FileID present: graph_client.get_file_content() → bytes
+4.  If GoogleDocLink present: google_docs_client.read_doc_by_list_item()
+5.  Process with Ollama (unchanged)
+6.  Draft email (unchanged)
+7.  Update action status to 'Complete' or 'Failed'
+•  Keep Ollama integration exactly as-is
+•  Keep email drafting logic exactly as-is
+----
+Phase 4: Power Automate Flows
+Generate JSON templates in /flows/:
+Flow A: Email Onboarding
+•  Trigger: Gmail label [MCP] added
+•  Actions:
+1.  Save attachment to SharePoint /Temporary_Staging/ with naming pattern: {Subject}{MessageID}{Timestamp}.{ext}
+2.  Create Action_Items item:
+•  TaskName = Subject
+•  EmailID = MessageID
+•  FileLink = SharePoint webUrl
+•  FileID = SharePoint driveItemId (critical for bot retrieval)
+•  Status = Pending
+•  Source = Email
+Flow B: Email Offboarding
+•  Trigger: Gmail label [MCP] removed
+•  Actions:
+3.  Get Action_Items where EmailID = MessageID
+4.  Delete list item(s)
+5.  Delete file from /Temporary_Staging/
+Flow C: Idea Board Bridge
+•  Trigger: New item in Idea_Board
+•  Actions:
+6.  Create Google Doc in /MCP_Project_Brains/ named {IdeaName}.html
+7.  Content: HTML template with title, creation date, placeholder body
+8.  Update Idea_Board item: GoogleDocLink = Doc URL
+Flow D: 60-Day Reaper
+•  Trigger: Daily recurrence
+•  Logic:
+•  /Temporary_Staging/ files > 30 days → Move to /Garbage_Folder/
+•  /Garbage_Folder/ files > 60 days → Permanent delete
+----
+Phase 5: Configuration & Environment
+.env.template:
 Microsoft 365
 TENANT_ID=
 CLIENT_ID=
@@ -135,275 +166,57 @@ GOOGLE_CREDENTIALS_PATH=
 GMAIL_USER_ID=
 Ollama (existing)
 OLLAMA_BASE_URL=
-
-
-### Code Quality Requirements
-- All new code must include:
-  - Type hints
-  - Docstrings (Google style)
-  - Error handling with specific exceptions
-  - Logging using Python `logging` module
-  - Unit test stubs in `/tests/` directory
-- Mark all modified functions with `# MODIFIED: [date] - [description]` comments
-- Add `# DEPRECATED: See active/[new_file].py` to old files
-
-### Migration Safety
-- Do NOT delete any existing files
-- Create `migration_validator.py` that:
-  - Compares Google Sheets row counts to SharePoint List counts
-  - Validates allEmailIDs from Gmail are present in Action_Items
-  - Checks for orphaned files in staging folders
-- Generate rollback script that can revert to Google-only mode
-
-## Deliverables
-1. All new/modified Python files in `/active/`
-2. Archived old files in `/possibly_deprecating/` with deprecation notices
-3. Power Automate flow JSON templates in `/flows/`
-4. Migration guide: `README_MIGRATION.md`
-5. Configuration template: `.env.template`
-6. Validation script: `migration_validator.py`
-7. Setup script: `setup_m365_lists.py` (creates all Lists via Graph API)
-
-## Testing Requirements
-Before deployment, the system must:
-- [ ] Successfully authenticate to Microsoft Graph API
-- [ ] Create all 4 SharePoint Lists programmatically
-- [ ] Poll Action_Items list and detect new items
-- [ ] Fetch a file from SharePoint Document Library
-- [ ] Read a Google Doc via URL stored in SharePoint
-- [ ] Update a SharePoint List item status
-- [ ] Run migration validator with 0 errors
-
-Use explicit error messages that reference the specific API endpoint that failed.
-
-
-Your Action Plan (User Steps)
-Pre-Code Work (Do These First)
-1. Microsoft 365 Setup (30 minutes)
-	∙	Go to https://admin.microsoft.com
-	∙	Create Team: “Project MCP” (this auto-creates SharePoint site)
-	∙	Note your SharePoint site URL (e.g., https://yourtenant.sharepoint.com/sites/ProjectMCP)
-	∙	Create these folders in SharePoint Documents:
-	∙	/Temporary_Staging/
-	∙	/Garbage_Folder/
-	∙	/MCP_Project_Brains/ (for Google Docs created by Power Automate)
-2. Azure App Registration (20 minutes)
-	∙	Go to https://portal.azure.com → Azure Active Directory → App Registrations
-	∙	Click “New registration”
-	∙	Name: “MCP Bot”
-	∙	Supported account types: “Single tenant”
-	∙	After creation, copy these values to a secure note:
-	∙	Application (client) ID
-	∙	Directory (tenant) ID
-	∙	Go to “Certificates & secrets” → “New client secret”
-	∙	Description: “Bot access token”
-	∙	Copy the secret VALUE immediately (you can’t see it again!)
-	∙	Go to “API permissions” → “Add permission” → “Microsoft Graph”
-	∙	Add these Application permissions:
-	∙	Sites.ReadWrite.All
-	∙	Files.ReadWrite.All
-	∙	Click “Grant admin consent” button
-3. Get SharePoint Site ID (5 minutes)
-Run this in browser console while on your SharePoint site:
-
-_spPageContextInfo.siteId
-
-
-Save this GUID for your .env file.
-4. Prepare Your Local Environment (10 minutes)
-
-# Create project backup
-cd /path/to/your/project
-git add -A
-git commit -m "Pre-migration checkpoint"
-git tag v1-google-only
-
-# Create new branch
-git checkout -b hybrid-m365-migration
-
-# Install new dependencies
-pip install msal msgraph-sdk azure-identity
-
-# Create directory structure
-mkdir -p active possibly_deprecating flows tests
-
-
-5. Move Existing Files to Archive (5 minutes)
-
-# Copy (don't move yet) existing files
-cp sheets_client.py possibly_deprecating/
-cp file_fetcher.py possibly_deprecating/
-cp google_docs_client.py possibly_deprecating/
-cp mode4_processor.py possibly_deprecating/
-
-# Add deprecation notice to tops of archived files
-echo "# DEPRECATED: This is the old Google Sheets version. See active/ folder for new hybrid system." | cat - possibly_deprecating/sheets_client.py > temp && mv temp possibly_deprecating/sheets_client.py
-
-
-Post-Code Work (After Claude Code Runs)
-6. Environment Configuration (5 minutes)
-	∙	Copy .env.template to .env
-	∙	Fill in all Microsoft 365 values from steps 2 & 3
-	∙	Verify your existing Google credentials path is correct
-	∙	DO NOT commit .env to git
-7. Initial Validation (10 minutes)
-
-# Test Microsoft Graph connection
-python active/graph_client.py --test-connection
-
-# Create SharePoint Lists
-python setup_m365_lists.py
-
-# Verify lists were created
-# (Visit your SharePoint site → Site Contents → should see 4 new lists)
-
-
-8. Power Automate Flow Setup (45 minutes)
-For each flow JSON template in /flows/:
-	∙	Go to https://make.powerautomate.com
-	∙	Click “My flows” → “Import” → “Import Package (Legacy)”
-	∙	Upload the JSON file
-	∙	Map connections:
-	∙	Gmail: Select your Gmail account
-	∙	SharePoint: Select your tenant
-	∙	Save and turn ON the flow
-	∙	Test each flow:
-	∙	Flow A: Label an email with [MCP], check if item appears in Action_Items list
-	∙	Flow B: Remove [MCP] label, check if item disappears
-	∙	Flow C: Add item to Idea_Board, check if Google Doc gets created
-9. Migration Validation (15 minutes)
-
-# Run the validator
-python migration_validator.py
-
-# Should output:
-# ✓ Microsoft Graph API: Connected
-# ✓ SharePoint Lists: All 4 created
-# ✓ Google Sheets access: Working
-# ✓ Gmail label count: 12 emails with [MCP]
-# ✓ Action_Items count: 12 items
-# ✓ No orphaned files in staging
-
-
-10. Staged Rollout (Do Over 1 Week)
-Day 1-2: Read-only testing
-	∙	Let Power Automate flows run
-	∙	Monitor SharePoint lists filling up
-	∙	Do NOT run the bot yet
-	∙	Verify Gmail → SharePoint sync is accurate
-Day 3-4: Bot in dry-run mode
-	∙	Modify mode4_processor.py to add --dry-run flag
-	∙	Run: python active/mode4_processor.py --dry-run
-	∙	Check logs to ensure it reads SharePoint correctly
-	∙	Verify it can fetch files from SharePoint
-	∙	Verify it can read Google Docs via SharePoint links
-Day 5: First live run
-	∙	Label ONE test email with [MCP]
-	∙	Watch the full cycle: Email → SharePoint → Bot processes → Status updated
-	∙	Remove label, verify cleanup
-Day 6-7: Full production
-	∙	Enable bot as background service
-	∙	Monitor for 48 hours
-	∙	Compare behavior to old system
-11. Deprecation Cleanup (After 30 Days)
-If system is stable:
-
-# Add final deprecation warnings
-rm possibly_deprecating/*.py  # or move to /archive/2026-02/
-
-# Update README
-echo "This project now uses Microsoft 365 Lists. Google Sheets code was retired March 2026." >> README.md
-
-git add -A
-git commit -m "Complete migration to hybrid M365 system"
-git tag v2-hybrid-m365
-
-
-Emergency Rollback Procedure
-If something breaks:
-
-# Switch back to old system
-git checkout v1-google-only
-
-# Or just use old files
-cp possibly_deprecating/* ./
-
-# Turn OFF Power Automate flows
-# (Go to make.powerautomate.com → turn off all 4 flows)
-
-# Resume using Gmail + Google Sheets only
-
-
-Success Criteria Checklist
-You’ll know migration is complete when:
-	∙	Email labeled [MCP] creates SharePoint list item within 5 seconds
-	∙	Bot processes SharePoint queue instead of polling Gmail
-	∙	Files are fetched from SharePoint staging folder
-	∙	Ideas added to list auto-create Google Docs
-	∙	Removing [MCP] label cleans up staging within 5 seconds
-	∙	No Google Sheets are accessed by the bot anymore
-	∙	Old sheets_client.py has not been imported in 30 days
-
-Estimated Total Time Investment:
-	∙	Pre-code setup: ~80 minutes
-	∙	Code execution: ~10 minutes (Claude Code)
-	∙	Post-code setup: ~90 minutes
-	∙	Testing & validation: ~2 hours over 1 week
-	∙	Total: ~5 hours spread over 7-10 days
-Would you like me to generate the actual Python code for any of these components now, or do you want to complete the pre-code setup steps first?​​​​​​​​​​​​​​​​
-
-
-also please not this:
-
-Yes, you've spotted the classic "Cloud Trap." When you ask a system like SharePoint for a file, it defaults to sending a Link (the "address" of the file) rather than the Content Bytes (the "actual paper" inside the envelope).
-To attach a real file to a Gmail draft, you have to tell your code to "Open the envelope and read the bits." Here is how you override this in both Power Automate and your Python code.
-1. The Power Automate Fix: "Get File Content"
-If you are using Power Automate to send the email, you cannot just use the output from the "Create File" step. You must add one specific action in between.
- * The Action: Search for "SharePoint - Get file content".
- * The Input: Use the File Identifier (the ID) from your "Create File" or "Get File Properties" step.
- * The Gmail Action: In the Gmail "Send Email" or "Create Draft" block:
-   * Click Show Advanced Options.
-   * In the Attachments Name, type the file name (e.g., W9.pdf).
-   * In the Attachments Content, choose the File Content (the purple icon) from the "Get file content" step.
-   * This forces the flow to grab the actual data of the file, not just the URL.
-2. The Python Fix: "Raw Content Download"
-Since your bot is on your M1, it needs to download the "binary data" of the file to attach it to a Gmail draft. If you only have the webUrl, you'll just be emailing a link.
-In your graph_client.py, you need to use the content endpoint to get the actual bytes:
-def get_file_bytes(self, item_id):
-    # This specifically asks for the "actual file" rather than just the info
-    url = f"https://graph.microsoft.com/v1.0/sites/{self.site_id}/drive/items/{item_id}/content"
-    token = self.get_token()
-    response = requests.get(url, headers={'Authorization': f'Bearer {token}'})
-    
-    # These are the actual bytes of your PDF/Doc
-    return response.content 
-
-3. The "Hybrid Bridge" Shortcut
-To make this easy for yourself, have Power Automate store the SharePoint Item ID in your Bot_Queue list instead of just the link.
- * Power Automate: When it creates the file in /Temporary_Staging/, it saves the ID to the SharePoint List.
- * M1 Bot: The bot reads the ID, uses the Python function above to grab the Bytes, and then uses your gmail_client.py to attach those bytes to the draft.
-Why this is better:
-By using the Content Bytes, your Gmail draft will look exactly like you manually attached a file from your computer. The recipient won't need a SharePoint login or special permissions to see it—it's just a regular PDF attached to the email.
-Would you like me to update your gmail_client.py to include the logic that takes these "Bytes" and turns them into a real Gmail attachment?
-
-I absolutely will. That "Link vs. Content" distinction is one of the most common reasons why automation projects fail during the first test run. Since my goal is to be your grounded AI collaborator, I'll keep flagging these "invisible" technical hurdles so you don't have to find them the hard way.
-Here are the three most important "gotchas" similar to the attachment issue that you need to be aware of right now:
-1. The "Token Expiration" Trap
-When your M1 bot talks to SharePoint, it uses an Access Token.
- * The Issue: These tokens usually expire every 60 minutes.
- * The Alert: If your code isn't written to "Refresh" the token automatically, the bot will work perfectly for an hour and then suddenly start giving "401 Unauthorized" errors.
- * The Fix: Ensure your graph_client.py has logic to check if the token is old and request a new one before every task.
-2. File Name Conflicts
-Since you are moving things into a /Temporary_Staging/ folder, you might run into "Double Name" issues.
- * The Issue: If you receive two emails with the subject "W9" and both have an attachment named document.pdf, SharePoint will error out because a file with that name already exists.
- * The Alert: Power Automate will "Fail" the flow if it tries to save a file where one already exists.
- * The Fix: In Power Automate, append the Gmail Message ID or a Timestamp to the filename (e.g., W9_182f3a4b5c.pdf). This ensures every file name is unique.
-3. The "Large File" API Limit
-The way you "Get File Content" changes if the file is very large.
- * The Issue: The standard "Get Content" command in the Microsoft Graph API works great for PDFs and Docs up to about 4MB. If you try to grab a 20MB scan of a contract, the simple request might timeout.
- * The Alert: Your bot might work for small files but "hang" or crash on larger ones.
- * The Fix: For larger files, we have to use "Chunked Uploads/Downloads." We should stick to files under 4MB for now, or I can provide the "Chunking" code if you plan on processing massive PDFs.
-Your Next Move: The "List Reader"
-To keep the momentum, we should now focus on the Python side of the "SharePoint List" transition. Since we are ditching Google Sheets for the Bot_Queue list, your bot needs to know how to "read" that list.
-Would you like me to generate the sharepoint_list_reader.py code that handles the "Token Refresh" and "File Content Download" so you can replace your old Google Sheets script?
-
+----
+Code Quality Standards
+All new/modified files must include:
+•  Type hints (Python 3.9+)
+•  Google-style docstrings
+•  Specific exception handling with endpoint URLs in messages
+•  Python logging module (not print)
+•  Unit test stubs in /tests/
+Migration Safety
+migration_validator.py requirements:
+•  Compare Google Sheets row counts to SharePoint List counts
+•  Validate all Gmail [MCP] labels have corresponding Action_Items
+•  Check for orphaned files in staging folders
+•  Output: Checklist format with ✓/✗ per item
+rollback.py requirements:
+•  Restore Google-only mode
+•  Disable Power Automate flows (documentation only, manual step)
+•  Revert to v1-google-only git tag
+Critical Technical Constraints
+1.  File Content vs. Metadata: Always use /content endpoint for file bytes, never webUrl
+2.  Token Refresh: Check token expiry before every Graph API call; auto-refresh if <5 min remaining
+3.  File Naming: Power Automate must append MessageID + Timestamp to prevent collisions
+4.  Size Limits: Support files up to 4MB via standard download; document chunked approach for larger files
+5.  FileID Storage: Action_Items must store SharePoint driveItemId (FileID), not just URL
+----
+Deliverables Checklist
+•  [ ] All files in /active/ with modification headers
+•  [ ] All archived files in /possibly_deprecating/ with deprecation notices
+•  [ ] Power Automate JSON templates in /flows/
+•  [ ] README_MIGRATION.md with architecture diagram
+•  [ ] .env.template with all variables
+•  [ ] setup_m365_lists.py (idempotent list creation)
+•  [ ] migration_validator.py (pre/post flight checks)
+•  [ ] rollback.py (emergency revert)
+•  [ ] Unit test stubs in /tests/
+Testing Requirements
+Before deployment, verify:
+•  [ ] Graph API authentication with auto-refresh
+•  [ ] All 4 SharePoint Lists created programmatically
+•  [ ] Action_Items polling detects new items within 5 seconds
+•  [ ] File fetch from SharePoint returns bytes, not URL
+•  [ ] Google Doc read via SharePoint link succeeds
+•  [ ] Status updates propagate to SharePoint
+•  [ ] Migration validator runs with zero errors
+Error Messages: Must include specific API endpoint that failed (e.g., "Graph API Error: GET https://graph.microsoft.com/v1.0/sites/{id}/lists/Action_Items/items").
+Execution Priority
+1.  Generate graph_client.py with robust token handling
+2.  Generate setup_m365_lists.py for list provisioning
+3.  Generate sharepoint_list_reader.py with FileID support
+4.  Generate modified file_fetcher.py with hybrid logic
+5.  Generate Power Automate Flow A and B JSON
+6.  Generate migration_validator.py
+7.  Generate remaining files
+Do not proceed to next file until previous passes conceptual review.
