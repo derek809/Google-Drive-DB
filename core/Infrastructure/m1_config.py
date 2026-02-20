@@ -72,7 +72,7 @@ MAX_DRAFT_CONTEXTS = 100           # Max pending draft sessions in memory
 
 
 # ============================================
-# GOOGLE SHEETS
+# GOOGLE SHEETS (Legacy/Fallback)
 # ============================================
 
 # The spreadsheet ID from your Google Sheet URL
@@ -110,7 +110,7 @@ TELEGRAM_ADMIN_CHAT_ID = int(os.getenv('TELEGRAM_ADMIN_CHAT_ID')) if os.getenv('
 
 
 # ============================================
-# GMAIL API
+# GMAIL API (Legacy/Fallback)
 # ============================================
 
 # Gmail API scopes needed
@@ -231,7 +231,7 @@ PROACTIVE_MORNING_DIGEST_HOUR = 7
 
 
 # ============================================
-# GOOGLE DOCS (Master Doc for Skills)
+# GOOGLE DOCS (Legacy/Fallback - Master Doc for Skills)
 # ============================================
 
 # Master Doc ID for storing finalized skills/ideas
@@ -248,7 +248,7 @@ SKILL_INCLUDE_IN_MORNING_BRIEF = True  # Include pending skills in morning brief
 
 
 # ============================================
-# TODO MANAGEMENT (Google Sheets as source of truth)
+# TODO MANAGEMENT (Legacy/Fallback - Google Sheets as source of truth)
 # ============================================
 
 TODOS_ACTIVE_SHEET = "todos_active"
@@ -256,7 +256,7 @@ TODOS_HISTORY_SHEET = "todos_history"
 
 
 # ============================================
-# BRAINSTORM (Google Docs)
+# BRAINSTORM (Legacy/Fallback - Google Docs)
 # ============================================
 
 # Brainstorm Doc ID - can be same as MASTER_DOC_ID or separate
@@ -295,6 +295,66 @@ TASK_COMPLETION_CONTEXT_TTL = 300  # 5 minutes
 
 
 # ============================================
+# MICROSOFT 365 (Graph API)
+# ============================================
+
+# Credentials file path
+MICROSOFT_CREDENTIALS_PATH = os.path.join(CREDENTIALS_DIR, "microsoft_login.json")
+
+# Load M365 credentials from JSON file
+_M365_CREDS = {}
+try:
+    if os.path.exists(MICROSOFT_CREDENTIALS_PATH):
+        import json as _json
+        with open(MICROSOFT_CREDENTIALS_PATH, 'r') as _f:
+            _M365_CREDS = _json.load(_f)
+except Exception as _e:
+    print(f"Warning: Could not load Microsoft credentials: {_e}")
+
+# Azure AD Application (env vars override JSON file)
+M365_CLIENT_ID = (
+    os.getenv('M365_CLIENT_ID')
+    or _M365_CREDS.get('azure_ad_application', {}).get('client_id', '')
+)
+M365_TENANT_ID = (
+    os.getenv('M365_TENANT_ID')
+    or _M365_CREDS.get('azure_ad_application', {}).get('tenant_id', '')
+)
+M365_CLIENT_SECRET = (
+    os.getenv('M365_CLIENT_SECRET')
+    or _M365_CREDS.get('azure_ad_application', {}).get('client_secret', '')
+)
+
+# SharePoint
+SHAREPOINT_SITE_ID = (
+    os.getenv('SHAREPOINT_SITE_ID')
+    or _M365_CREDS.get('sharepoint', {}).get('site_id', '')
+)
+
+# OneNote
+ONENOTE_NOTEBOOK_ID = os.getenv('ONENOTE_NOTEBOOK_ID', '')
+
+# Microsoft Lists
+ACTION_ITEMS_LIST_ID = os.getenv('ACTION_ITEMS_LIST_ID', '')
+IDEA_BOARD_LIST_ID = os.getenv('IDEA_BOARD_LIST_ID', '')
+
+# Operational settings
+M365_STALE_TASK_THRESHOLD_MINUTES = int(
+    os.getenv('M365_STALE_TASK_THRESHOLD_MINUTES', '15')
+)
+M365_MAX_FILE_SIZE_MB = int(os.getenv('M365_MAX_FILE_SIZE_MB', '10'))
+M365_CIRCUIT_BREAKER_COOLDOWN_SECONDS = int(
+    os.getenv('M365_CIRCUIT_BREAKER_COOLDOWN_SECONDS', '300')
+)
+
+# Hybrid migration mode: "dual", "google_only", "microsoft_only"
+HYBRID_MIGRATION_MODE = os.getenv('HYBRID_MIGRATION_MODE', 'dual')
+
+# Feature flag — nothing changes until explicitly opted in
+M365_ENABLED = os.getenv('M365_ENABLED', 'false').lower() == 'true'
+
+
+# ============================================
 # ACTION REGISTRY SYSTEM
 # ============================================
 
@@ -311,6 +371,30 @@ ACTION_REGISTRY_CONFIDENCE_GATE = 0.65
 # ============================================
 # HELPER FUNCTIONS
 # ============================================
+
+def get_m365_config_loader():
+    """
+    Return a callable that resolves dotted config keys to M365 values.
+
+    The active/ clients (SharePointListReader, OneNoteClient, etc.)
+    expect a config_loader("microsoft.action_items_list_id") interface.
+    This bridges from m1_config constants to that interface.
+
+    Returns:
+        Callable[[str], Any] that resolves dotted keys.
+    """
+    config_map = {
+        "sharepoint.site_id": SHAREPOINT_SITE_ID,
+        "microsoft.onenote_notebook_id": ONENOTE_NOTEBOOK_ID,
+        "microsoft.action_items_list_id": ACTION_ITEMS_LIST_ID,
+        "microsoft.idea_board_list_id": IDEA_BOARD_LIST_ID,
+        "microsoft.stale_task_threshold_minutes": M365_STALE_TASK_THRESHOLD_MINUTES,
+        "microsoft.max_file_size_mb": M365_MAX_FILE_SIZE_MB,
+        "microsoft.circuit_breaker_cooldown_seconds": M365_CIRCUIT_BREAKER_COOLDOWN_SECONDS,
+        "hybrid.migration_mode": HYBRID_MIGRATION_MODE,
+    }
+    return lambda key: config_map.get(key)
+
 
 def load_telegram_config():
     """Load Telegram configuration from JSON file."""
@@ -373,5 +457,17 @@ def validate_config():
 
     if not GEMINI_API_KEY:
         errors.append("GEMINI_API_KEY / GOOGLE_API_KEY not set - Gemini unavailable (non-critical)")
+
+    # Microsoft 365 (only validate when enabled)
+    if M365_ENABLED:
+        if not M365_CLIENT_ID or not M365_TENANT_ID or not M365_CLIENT_SECRET:
+            errors.append(
+                "M365_ENABLED=true but Azure AD credentials missing "
+                "(check credentials/microsoft_login.json or M365_* env vars)"
+            )
+        if not SHAREPOINT_SITE_ID:
+            errors.append("SHAREPOINT_SITE_ID not configured")
+        if not ACTION_ITEMS_LIST_ID:
+            errors.append("ACTION_ITEMS_LIST_ID not configured (non-critical for M365)")
 
     return errors

@@ -43,12 +43,12 @@ class ProactiveEngine:
         Initialize the proactive engine with all service dependencies.
 
         Args:
-            graph_client: Authenticated Graph API client with get/post/patch
-                methods. Handles 401 refresh automatically.
+            graph_client: Authenticated async Graph API client with
+                get/post/patch methods. Handles 401 refresh automatically.
             gdrive_client: Legacy Google Drive client with check_gmail_thread
                 and download methods.
-            onenote_client: OneNote client for page updates.
-            list_reader: SharePoint list reader for action items.
+            onenote_client: Async OneNote client for page updates.
+            list_reader: Async SharePoint list reader for action items.
             telegram_client: Alerting interface with send_alert(message,
                 priority) method.
             claude_client: LLM interface with generate(prompt, personality)
@@ -72,7 +72,7 @@ class ProactiveEngine:
             self._action_items_list,
         )
 
-    def sync_workspace(self) -> None:
+    async def sync_workspace(self) -> None:
         """
         Run a full workspace synchronization cycle.
 
@@ -83,14 +83,14 @@ class ProactiveEngine:
         logger.info("Starting workspace sync (mode=%s)", self._migration_mode)
 
         try:
-            items = self._list_reader.poll_action_items(
+            items = await self._list_reader.poll_action_items(
                 self._action_items_list
             )
             logger.info("Polled %d actionable items", len(items))
 
             for item in items:
                 try:
-                    self._process_item(item)
+                    await self._process_item(item)
                 except Exception as exc:
                     logger.error(
                         "Failed to process item %s: %s",
@@ -99,7 +99,7 @@ class ProactiveEngine:
                         exc_info=True,
                     )
 
-            self._check_stale_threads(items)
+            await self._check_stale_threads(items)
 
         except Exception as exc:
             logger.critical(
@@ -116,7 +116,7 @@ class ProactiveEngine:
 
         logger.info("Workspace sync complete")
 
-    def _process_item(self, item: Dict[str, Any]) -> None:
+    async def _process_item(self, item: Dict[str, Any]) -> None:
         """
         Process a single action item based on migration mode and item type.
 
@@ -136,19 +136,19 @@ class ProactiveEngine:
         thread_id = fields.get("ThreadID")
         conversation_id = fields.get("ConversationID")
 
-        if not self._list_reader.claim_task(
+        if not await self._list_reader.claim_task(
             self._action_items_list, item_id, etag
         ):
             logger.info("Could not claim item %s, skipping", item_id)
             return
 
         if thread_id and self._migration_mode in ("dual", "google_only"):
-            self._handle_legacy_thread(item, thread_id)
+            await self._handle_legacy_thread(item, thread_id)
         elif conversation_id and self._migration_mode in (
             "dual",
             "microsoft_only",
         ):
-            self._handle_exchange_thread(item, conversation_id)
+            await self._handle_exchange_thread(item, conversation_id)
         else:
             logger.info(
                 "Item %s has no actionable thread reference for mode %s",
@@ -156,7 +156,7 @@ class ProactiveEngine:
                 self._migration_mode,
             )
 
-    def _handle_legacy_thread(
+    async def _handle_legacy_thread(
         self, item: Dict[str, Any], thread_id: str
     ) -> None:
         """
@@ -164,9 +164,9 @@ class ProactiveEngine:
 
         Checks the Gmail thread for updates. If new content is found,
         generates a summary via Claude, appends it to OneNote when a
-        page_id exists, sends a Telegram alert, and completes the task.
-        If the thread returns 404, marks the task as externally resolved.
-        If no updates are found, refreshes the heartbeat.
+        page_id exists (using the Graph UUID, not the webUrl), sends
+        a Telegram alert with the OneNote link (webUrl for humans),
+        and completes the task.
 
         Args:
             item: Action item dict.
@@ -174,7 +174,10 @@ class ProactiveEngine:
         """
         item_id = item.get("id", "")
         fields = item.get("fields", {})
+        # OneNotePageID = Graph UUID for API calls
         page_id = fields.get("OneNotePageID")
+        # OneNoteLink = webUrl for human-readable Telegram notifications
+        onenote_link = fields.get("OneNoteLink", "")
 
         try:
             thread_data = self._gdrive.check_gmail_thread(thread_id)
@@ -188,7 +191,7 @@ class ProactiveEngine:
                     "resolved",
                     thread_id,
                 )
-                self._list_reader.complete_task(
+                await self._list_reader.complete_task(
                     self._action_items_list,
                     item_id,
                     "Thread resolved externally (404)",
@@ -196,13 +199,13 @@ class ProactiveEngine:
                 return
 
             logger.error("Error checking thread %s: %s", thread_id, exc)
-            self._list_reader.update_heartbeat(
+            await self._list_reader.update_heartbeat(
                 self._action_items_list, item_id
             )
             return
 
         if not thread_data:
-            self._list_reader.update_heartbeat(
+            await self._list_reader.update_heartbeat(
                 self._action_items_list, item_id
             )
             return
@@ -211,24 +214,27 @@ class ProactiveEngine:
 
         if page_id:
             try:
-                self._onenote.append_state_summary(page_id, summary)
+                await self._onenote.append_state_summary(page_id, summary)
             except Exception as exc:
                 logger.error(
                     "Failed to update OneNote page %s: %s", page_id, exc
                 )
 
-        self._telegram.send_alert(
-            f"Thread update: {fields.get('TaskName', thread_id)}\n{summary}",
-            priority="normal",
-        )
+        # Use OneNote link (webUrl) for Telegram notification, not page_id
+        task_name = fields.get("TaskName", thread_id)
+        alert_msg = f"Thread update: {task_name}\n{summary}"
+        if onenote_link:
+            alert_msg += f"\nOneNote: {onenote_link}"
 
-        self._list_reader.complete_task(
+        self._telegram.send_alert(alert_msg, priority="normal")
+
+        await self._list_reader.complete_task(
             self._action_items_list,
             item_id,
             f"Summary generated from Gmail thread {thread_id}",
         )
 
-    def _handle_exchange_thread(
+    async def _handle_exchange_thread(
         self, item: Dict[str, Any], conversation_id: str
     ) -> None:
         """
@@ -245,6 +251,7 @@ class ProactiveEngine:
         item_id = item.get("id", "")
         fields = item.get("fields", {})
         page_id = fields.get("OneNotePageID")
+        onenote_link = fields.get("OneNoteLink", "")
 
         try:
             url = (
@@ -254,7 +261,7 @@ class ProactiveEngine:
                 f"&$top=10"
                 f"&$select=subject,bodyPreview,from,receivedDateTime"
             )
-            resp = self._graph.get(url)
+            resp = await self._graph.get(url)
             messages = (
                 resp.get("value", []) if isinstance(resp, dict) else []
             )
@@ -264,13 +271,13 @@ class ProactiveEngine:
                 conversation_id,
                 exc,
             )
-            self._list_reader.update_heartbeat(
+            await self._list_reader.update_heartbeat(
                 self._action_items_list, item_id
             )
             return
 
         if not messages:
-            self._list_reader.update_heartbeat(
+            await self._list_reader.update_heartbeat(
                 self._action_items_list, item_id
             )
             return
@@ -295,25 +302,26 @@ class ProactiveEngine:
 
         if page_id:
             try:
-                self._onenote.append_state_summary(page_id, summary)
+                await self._onenote.append_state_summary(page_id, summary)
             except Exception as exc:
                 logger.error(
                     "Failed to update OneNote page %s: %s", page_id, exc
                 )
 
-        self._telegram.send_alert(
-            f"Exchange update: "
-            f"{fields.get('TaskName', conversation_id)}\n{summary}",
-            priority="normal",
-        )
+        task_name = fields.get("TaskName", conversation_id)
+        alert_msg = f"Exchange update: {task_name}\n{summary}"
+        if onenote_link:
+            alert_msg += f"\nOneNote: {onenote_link}"
 
-        self._list_reader.complete_task(
+        self._telegram.send_alert(alert_msg, priority="normal")
+
+        await self._list_reader.complete_task(
             self._action_items_list,
             item_id,
             f"Summary generated from Exchange thread {conversation_id}",
         )
 
-    def _check_stale_threads(
+    async def _check_stale_threads(
         self, items: List[Dict[str, Any]]
     ) -> None:
         """
@@ -359,7 +367,7 @@ class ProactiveEngine:
             )
 
             try:
-                self._generate_proactive_summary(item, page_id)
+                await self._generate_proactive_summary(item, page_id)
                 self._telegram.send_alert(
                     f"State of Play generated: {task_name}",
                     priority="low",
@@ -377,12 +385,8 @@ class ProactiveEngine:
         """
         Generate a thread summary from the last 3 messages using Claude.
 
-        Combines the most recent message contents and prompts Claude for
-        a concise, action-oriented summary in Derek's voice.
-
         Args:
-            thread_data: Dict containing a 'messages' list, each with
-                'from', 'body', 'date', and optionally 'subject' keys.
+            thread_data: Dict containing a 'messages' list.
 
         Returns:
             Summary text generated by Claude, or a fallback notice on failure.
@@ -419,19 +423,15 @@ class ProactiveEngine:
                 f"pending review]"
             )
 
-    def _generate_proactive_summary(
+    async def _generate_proactive_summary(
         self, item: Dict[str, Any], page_id: Optional[str]
     ) -> None:
         """
         Generate a proactive "State of Play" summary for a stale thread.
 
-        Builds a context dict from the item fields, prompts Claude with
-        Derek's persona for a structured summary, and appends the result
-        to OneNote with a timestamp header.
-
         Args:
             item: Action item dict with fields.
-            page_id: Optional OneNote page ID for appending the summary.
+            page_id: Optional OneNote page ID (Graph UUID) for appending.
         """
         fields = item.get("fields", {})
 
@@ -477,13 +477,13 @@ class ProactiveEngine:
             "%Y-%m-%d %H:%M UTC"
         )
         summary_html = (
-            f"<h2>State of Play &mdash; {timestamp}</h2>"
+            f"<h2>State of Play — {timestamp}</h2>"
             f"<pre>{summary_text}</pre>"
         )
 
         if page_id:
             try:
-                self._onenote.append_state_summary(page_id, summary_html)
+                await self._onenote.append_state_summary(page_id, summary_html)
                 logger.info(
                     "Proactive summary appended to page %s", page_id
                 )

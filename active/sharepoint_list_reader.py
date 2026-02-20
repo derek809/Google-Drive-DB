@@ -38,8 +38,8 @@ class SharePointListReader:
         Initialize SharePoint List reader.
 
         Args:
-            graph_client: Authenticated Graph API client with get/post/patch
-                methods. Handles 401 refresh automatically.
+            graph_client: Authenticated async Graph API client with
+                get/post/patch methods. Handles 401 refresh automatically.
             config_loader: Callable that resolves dotted config keys to values.
         """
         self._graph = graph_client
@@ -63,7 +63,7 @@ class SharePointListReader:
         """Build the Graph API URL for a specific list item."""
         return f"{self._list_items_url(list_id)}/{item_id}"
 
-    def poll_action_items(self, list_id: str) -> List[Dict[str, Any]]:
+    async def poll_action_items(self, list_id: str) -> List[Dict[str, Any]]:
         """
         Poll for actionable items from a SharePoint list.
 
@@ -98,7 +98,7 @@ class SharePointListReader:
         )
 
         try:
-            resp = self._graph.get(url)
+            resp = await self._graph.get(url)
             raw_items = resp.get("value", []) if isinstance(resp, dict) else []
         except Exception as exc:
             logger.error("Failed to poll list %s: %s", list_id, exc)
@@ -113,7 +113,7 @@ class SharePointListReader:
 
             if fields.get("Status") == "Processing":
                 try:
-                    self._reset_stale_item(list_id, item_id, etag)
+                    await self._reset_stale_item(list_id, item_id, etag)
                 except StaleItemError as exc:
                     logger.warning(
                         "Skipping stale item %s — reset failed: %s",
@@ -123,7 +123,7 @@ class SharePointListReader:
                     continue
 
                 try:
-                    refreshed = self._graph.get(
+                    refreshed = await self._graph.get(
                         f"{self._item_url(list_id, item_id)}?$expand=fields"
                     )
                     fields = refreshed.get("fields", fields)
@@ -149,7 +149,7 @@ class SharePointListReader:
         )
         return actionable
 
-    def _reset_stale_item(
+    async def _reset_stale_item(
         self, list_id: str, item_id: str, etag: str
     ) -> None:
         """
@@ -179,7 +179,7 @@ class SharePointListReader:
         }
 
         try:
-            self._graph.patch(url, headers=headers, data=payload)
+            await self._graph.patch(url, headers=headers, data=payload)
             logger.info(
                 "Reset stale item %s to Pending: %s", item_id, recovery_note
             )
@@ -189,7 +189,7 @@ class SharePointListReader:
                 f"Failed to reset stale item {item_id}: {exc}"
             ) from exc
 
-    def claim_task(
+    async def claim_task(
         self, list_id: str, item_id: str, etag: str
     ) -> bool:
         """
@@ -219,7 +219,7 @@ class SharePointListReader:
         }
 
         try:
-            self._graph.patch(url, headers=headers, data=payload)
+            await self._graph.patch(url, headers=headers, data=payload)
             logger.info("Claimed task %s in list %s", item_id, list_id)
             return True
         except Exception as exc:
@@ -235,7 +235,7 @@ class SharePointListReader:
             logger.error("Failed to claim task %s: %s", item_id, exc)
             return False
 
-    def update_heartbeat(self, list_id: str, item_id: str) -> None:
+    async def update_heartbeat(self, list_id: str, item_id: str) -> None:
         """
         Update the heartbeat timestamp for a task being processed.
 
@@ -252,7 +252,7 @@ class SharePointListReader:
         payload = {"LastBotHeartbeat": now_iso}
 
         try:
-            self._graph.patch(url, headers=headers, data=payload)
+            await self._graph.patch(url, headers=headers, data=payload)
             logger.debug("Heartbeat updated for task %s", item_id)
         except Exception as exc:
             logger.warning(
@@ -261,7 +261,7 @@ class SharePointListReader:
                 exc,
             )
 
-    def complete_task(
+    async def complete_task(
         self, list_id: str, item_id: str, notes: str
     ) -> None:
         """
@@ -282,7 +282,7 @@ class SharePointListReader:
         }
 
         try:
-            self._graph.patch(url, headers=headers, data=payload)
+            await self._graph.patch(url, headers=headers, data=payload)
             logger.info("Completed task %s: %s", item_id, notes[:80])
         except Exception as exc:
             logger.error("Failed to complete task %s: %s", item_id, exc)

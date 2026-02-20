@@ -50,6 +50,11 @@ logger = logging.getLogger(__name__)
 # Add parent directory to path for imports
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# Add active/ directory to path for M365 imports
+_active_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'active')
+if _active_dir not in sys.path:
+    sys.path.insert(0, _active_dir)
+
 # Import Mode 4 components
 from gmail_client import GmailClient, GmailClientError
 from ollama_client import OllamaClient, OllamaClientError
@@ -68,6 +73,15 @@ from proactive_engine import ProactiveEngine, ProactiveEngineError
 
 # Import Sheets client from parent
 from sheets_client import GoogleSheetsClient, SheetsClientError
+
+# Microsoft 365 integration (conditional import)
+try:
+    from m1_config import (
+        M365_ENABLED, M365_CLIENT_ID, M365_TENANT_ID,
+        M365_CLIENT_SECRET, get_m365_config_loader,
+    )
+except ImportError:
+    M365_ENABLED = False
 
 
 class Mode4Processor:
@@ -114,6 +128,13 @@ class Mode4Processor:
         self._proactive_engine: Optional[ProactiveEngine] = None
         self._claude: Optional[ClaudeClient] = None
         self._kimi: Optional[KimiClient] = None
+
+        # Microsoft 365 clients (lazy loading, gated by M365_ENABLED)
+        self._graph_client = None
+        self._sharepoint_reader = None
+        self._onenote_client = None
+        self._file_fetcher_hybrid = None
+        self._m365_proactive_engine = None
 
         # Background task tracking for graceful shutdown
         self._background_tasks: list = []
@@ -245,6 +266,99 @@ class Mode4Processor:
             self._kimi = KimiClient()
             logger.info("Kimi K2 client initialized")
         return self._kimi
+
+    # ==================
+    # MICROSOFT 365 INTEGRATION
+    # ==================
+
+    async def _ensure_graph_client(self):
+        """Initialize the Graph client with the shared async session."""
+        if self._graph_client is None:
+            from graph_client import GraphClient
+            from async_session_manager import get_session
+
+            session = await get_session()
+            self._graph_client = GraphClient(
+                client_id=M365_CLIENT_ID,
+                tenant_id=M365_TENANT_ID,
+                client_secret=M365_CLIENT_SECRET,
+                session=session,
+            )
+            logger.info("Graph client initialized")
+
+        return self._graph_client
+
+    async def _ensure_sharepoint_reader(self):
+        """Initialize the SharePoint list reader."""
+        if self._sharepoint_reader is None:
+            from sharepoint_list_reader import SharePointListReader
+
+            graph = await self._ensure_graph_client()
+            config_loader = get_m365_config_loader()
+            self._sharepoint_reader = SharePointListReader(graph, config_loader)
+            logger.info("SharePoint list reader initialized")
+        return self._sharepoint_reader
+
+    async def _ensure_onenote_client(self):
+        """Initialize the OneNote client."""
+        if self._onenote_client is None:
+            from onenote_client import OneNoteClient
+
+            graph = await self._ensure_graph_client()
+            config_loader = get_m365_config_loader()
+            self._onenote_client = OneNoteClient(graph, config_loader)
+            logger.info("OneNote client initialized")
+        return self._onenote_client
+
+    async def start_m365_engine(self):
+        """Start Microsoft 365 integration if enabled."""
+        if not M365_ENABLED:
+            logger.info("M365 integration disabled by config (M365_ENABLED=false)")
+            return
+
+        logger.info("Starting M365 integration...")
+
+        try:
+            graph = await self._ensure_graph_client()
+            onenote = await self._ensure_onenote_client()
+            sp_reader = await self._ensure_sharepoint_reader()
+            config_loader = get_m365_config_loader()
+
+            from proactive_engine import ProactiveEngine as M365ProactiveEngine
+
+            self._m365_proactive_engine = M365ProactiveEngine(
+                graph_client=graph,
+                gdrive_client=self.gmail,
+                onenote_client=onenote,
+                list_reader=sp_reader,
+                telegram_client=self.telegram,
+                claude_client=self.claude,
+                config_loader=config_loader,
+            )
+
+            task = asyncio.create_task(self._m365_sync_loop())
+            self._background_tasks.append(task)
+
+            logger.info("M365 integration started successfully")
+
+        except Exception as exc:
+            logger.error("Failed to start M365 integration: %s", exc, exc_info=True)
+
+    async def _m365_sync_loop(self):
+        """Background loop for M365 workspace sync."""
+        from m1_config import PROACTIVE_CHECK_INTERVAL
+
+        interval = PROACTIVE_CHECK_INTERVAL
+        logger.info("M365 sync loop started (interval: %ds)", interval)
+
+        while True:
+            try:
+                if self._m365_proactive_engine:
+                    await self._m365_proactive_engine.sync_workspace()
+            except Exception as exc:
+                logger.error("M365 sync error: %s", exc, exc_info=True)
+
+            await asyncio.sleep(interval)
 
     async def start_proactive_engine(self):
         """Start proactive engine background worker."""
@@ -640,6 +754,9 @@ class Mode4Processor:
         # Process any queued messages
         await self._process_startup_queue()
 
+        # Start M365 integration (if enabled)
+        await self.start_m365_engine()
+
         await self.telegram.run_async(message_callback=self.process_message)
 
     async def _process_startup_queue(self):
@@ -800,6 +917,18 @@ class Mode4Processor:
 
     def cleanup(self):
         """Clean up resources."""
+        # Close shared HTTP session (for M365 Graph client)
+        try:
+            from async_session_manager import close as close_session
+            loop = asyncio.get_event_loop()
+            if loop.is_running():
+                loop.create_task(close_session())
+            else:
+                loop.run_until_complete(close_session())
+            logger.info("Shared HTTP session closed")
+        except Exception as e:
+            logger.warning(f"Error closing HTTP session: {e}")
+
         # Cancel background tasks
         for task in self._background_tasks:
             if not task.done():

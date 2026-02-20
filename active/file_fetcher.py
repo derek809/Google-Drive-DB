@@ -59,7 +59,7 @@ class HybridFileFetcher:
         Initialize hybrid file fetcher with circuit breaker defaults.
 
         Args:
-            graph_client: Authenticated Graph API client with get method.
+            graph_client: Authenticated async Graph API client with get method.
                 Handles 401 refresh automatically.
             gdrive_client: Legacy Google Drive client with download(path)
                 method that returns bytes.
@@ -86,7 +86,7 @@ class HybridFileFetcher:
             self._cooldown_seconds,
         )
 
-    def fetch(self, file_ref: Dict[str, Any]) -> bytes:
+    async def fetch(self, file_ref: Dict[str, Any]) -> bytes:
         """
         Fetch file content as bytes from the best available source.
 
@@ -118,7 +118,7 @@ class HybridFileFetcher:
 
         if sp_file_id and self._should_try_sharepoint():
             try:
-                content = self._fetch_sharepoint(sp_file_id)
+                content = await self._fetch_sharepoint(sp_file_id)
                 self._record_success()
                 self._enforce_size_limit(content, f"SharePoint:{sp_file_id}")
                 return content
@@ -181,7 +181,7 @@ class HybridFileFetcher:
 
     # ── SharePoint fetch ──────────────────────────────────────────────────
 
-    def _fetch_sharepoint(self, file_id: str) -> bytes:
+    async def _fetch_sharepoint(self, file_id: str) -> bytes:
         """
         Fetch file content from SharePoint via Graph API.
 
@@ -201,7 +201,7 @@ class HybridFileFetcher:
         )
 
         try:
-            resp = self._graph.get(url, stream=True)
+            resp = await self._graph.get(url, stream=True)
         except Exception as exc:
             status = getattr(exc, "status_code", None) or getattr(
                 getattr(exc, "response", None), "status_code", None

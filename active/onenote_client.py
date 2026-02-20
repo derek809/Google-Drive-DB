@@ -1,14 +1,16 @@
 """
 OneNote Client for Hybrid Operations Backend
 
-Handles OneNote page content updates via Microsoft Graph API with
-optimistic concurrency control. OneNote pages are immutable; updates
-require fetch-modify-replace using @odata.etag for conflict detection.
+Handles OneNote page content updates via Microsoft Graph API using
+the PATCH-append pattern with HTML sanitization. Uses optimistic
+concurrency control via @odata.etag for conflict detection.
 """
 
 import logging
 from datetime import datetime, timezone
 from typing import Any, Callable, Dict
+
+from onenote_html_sanitizer import sanitize_html, build_append_patch
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +31,9 @@ class OneNoteClient:
     """
     Manages OneNote page updates via Microsoft Graph API.
 
-    Uses optimistic concurrency control with @odata.etag headers to prevent
-    silent overwrites when a human and bot edit the same page simultaneously.
+    Uses the PATCH-append pattern (action="append", position="after",
+    target="body") instead of fetch-modify-replace. HTML is sanitized
+    through onenote_html_sanitizer before sending to avoid 400 errors.
     """
 
     def __init__(
@@ -42,30 +45,30 @@ class OneNoteClient:
         Initialize OneNote client.
 
         Args:
-            graph_client: Authenticated Graph API client with get/post/patch
-                methods. Handles 401 refresh automatically.
+            graph_client: Authenticated async Graph API client with
+                get/post/patch methods. Handles 401 refresh automatically.
             config_loader: Callable that resolves dotted config keys to values.
         """
         self._graph = graph_client
         self._notebook_id = config_loader("microsoft.onenote_notebook_id")
         logger.info("OneNoteClient initialized for notebook %s", self._notebook_id)
 
-    def append_state_summary(
+    async def append_state_summary(
         self, page_id: str, summary_html: str
     ) -> Dict[str, Any]:
         """
-        Append an AI state summary to the top of a OneNote page.
+        Append an AI state summary to a OneNote page.
 
-        Fetches the current page content, injects a timestamped summary div
-        at the top, and attempts an update with optimistic concurrency. On
-        412 Precondition Failed, fetches fresh content and retries exactly once.
+        Uses the PATCH-append pattern to add content without fetching
+        or replacing the full page. HTML is sanitized before sending.
+        On 412 Precondition Failed, retries exactly once.
 
         Args:
-            page_id: The Graph API page identifier.
-            summary_html: HTML content to inject as the state summary.
+            page_id: The Graph API page identifier (UUID, not URL).
+            summary_html: HTML content to append as the state summary.
 
         Returns:
-            Dict with 'success', 'page_id', 'timestamp', and 'etag' keys.
+            Dict with 'success', 'page_id', and 'timestamp' keys.
 
         Raises:
             ConcurrentEditError: If the page was modified by another editor
@@ -74,37 +77,74 @@ class OneNoteClient:
         """
         logger.info("Appending state summary to page %s", page_id)
 
-        content, etag = self._fetch_page(page_id)
-        updated_html = self._inject_summary(content, summary_html)
+        timestamp = datetime.now(timezone.utc).isoformat()
+        timestamped_html = (
+            f'<div data-id="ai-state-{timestamp}">'
+            f'<p><strong>AI Summary — {timestamp}</strong></p>'
+            f'{summary_html}'
+            f'</div>'
+        )
+
+        patch_body = build_append_patch(timestamped_html)
 
         try:
-            new_etag = self._update_page(page_id, updated_html, etag)
+            await self._patch_page(page_id, patch_body)
         except ConcurrentEditError:
             logger.warning(
                 "Concurrent edit detected on page %s, retrying once", page_id
             )
-            content, etag = self._fetch_page(page_id)
-            updated_html = self._inject_summary(content, summary_html)
-
             try:
-                new_etag = self._update_page(page_id, updated_html, etag)
+                await self._patch_page(page_id, patch_body)
             except ConcurrentEditError:
                 logger.error(
                     "Persistent concurrent edit conflict on page %s", page_id
                 )
                 raise
 
-        timestamp = datetime.now(timezone.utc).isoformat()
         logger.info("State summary appended to page %s", page_id)
 
         return {
             "success": True,
             "page_id": page_id,
             "timestamp": timestamp,
-            "etag": new_etag,
         }
 
-    def _fetch_page(self, page_id: str) -> tuple:
+    async def _patch_page(self, page_id: str, patch_body: list) -> None:
+        """
+        Send a PATCH-append request to a OneNote page.
+
+        Args:
+            page_id: The Graph API page identifier.
+            patch_body: List of patch action dicts from build_append_patch().
+
+        Raises:
+            ConcurrentEditError: On 412 Precondition Failed.
+            OneNoteUpdateError: On other errors.
+        """
+        url = f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content"
+        headers = {
+            "Content-Type": "application/json",
+        }
+
+        try:
+            await self._graph.patch(url, headers=headers, data=patch_body)
+            logger.debug("PATCH-append to page %s succeeded", page_id)
+        except Exception as exc:
+            status = getattr(exc, "status_code", None) or getattr(
+                getattr(exc, "response", None), "status_code", None
+            )
+            if status == 412:
+                raise ConcurrentEditError(
+                    f"Page {page_id} was modified by another editor"
+                ) from exc
+
+            logger.error("Failed to patch page %s: %s", page_id, exc)
+            raise OneNoteUpdateError(
+                f"Failed to patch OneNote page {page_id}: {exc}"
+            ) from exc
+
+    # DEPRECATED: Retained for potential read-only inspection use.
+    async def _fetch_page(self, page_id: str) -> tuple:
         """
         Fetch a OneNote page's content and etag.
 
@@ -119,7 +159,7 @@ class OneNoteClient:
         """
         try:
             meta_url = f"{GRAPH_BASE}/me/onenote/pages/{page_id}"
-            meta_resp = self._graph.get(meta_url)
+            meta_resp = await self._graph.get(meta_url)
 
             if isinstance(meta_resp, dict):
                 etag = meta_resp.get("@odata.etag", "")
@@ -129,7 +169,7 @@ class OneNoteClient:
                 etag = ""
 
             content_url = f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content"
-            content_resp = self._graph.get(content_url)
+            content_resp = await self._graph.get(content_url)
 
             if hasattr(content_resp, "text"):
                 html = content_resp.text
@@ -147,91 +187,4 @@ class OneNoteClient:
             logger.error("Failed to fetch page %s: %s", page_id, exc)
             raise OneNoteUpdateError(
                 f"Failed to fetch OneNote page {page_id}: {exc}"
-            ) from exc
-
-    def _inject_summary(self, existing_html: str, summary_html: str) -> str:
-        """
-        Inject a timestamped AI state summary div at the top of page content.
-
-        Args:
-            existing_html: Current page HTML content.
-            summary_html: New summary HTML to inject.
-
-        Returns:
-            Modified HTML with the summary div prepended after <body>.
-        """
-        timestamp = datetime.now(timezone.utc).isoformat()
-        summary_div = (
-            f'<div class="ai-state" data-timestamp="{timestamp}">'
-            f"{summary_html}</div>"
-        )
-
-        body_lower = existing_html.lower()
-        body_idx = body_lower.find("<body>")
-        if body_idx != -1:
-            insert_at = body_idx + len("<body>")
-            return (
-                existing_html[:insert_at]
-                + summary_div
-                + existing_html[insert_at:]
-            )
-
-        body_attr_idx = body_lower.find("<body ")
-        if body_attr_idx != -1:
-            close_idx = existing_html.index(">", body_attr_idx) + 1
-            return (
-                existing_html[:close_idx]
-                + summary_div
-                + existing_html[close_idx:]
-            )
-
-        return summary_div + existing_html
-
-    def _update_page(self, page_id: str, html: str, etag: str) -> str:
-        """
-        Update a OneNote page with optimistic concurrency control.
-
-        Args:
-            page_id: The Graph API page identifier.
-            html: The full updated HTML content.
-            etag: The @odata.etag value from the last fetch.
-
-        Returns:
-            The new etag after a successful update.
-
-        Raises:
-            ConcurrentEditError: If the server returns 412 Precondition Failed.
-            OneNoteUpdateError: If the update fails for other reasons.
-        """
-        url = f"{GRAPH_BASE}/me/onenote/pages/{page_id}/content"
-        headers = {
-            "Content-Type": "application/xhtml+xml",
-            "If-Match": etag,
-        }
-
-        try:
-            resp = self._graph.patch(url, headers=headers, data=html)
-
-            if hasattr(resp, "headers"):
-                new_etag = resp.headers.get("ETag", etag)
-            elif isinstance(resp, dict):
-                new_etag = resp.get("@odata.etag", etag)
-            else:
-                new_etag = etag
-
-            logger.debug("Updated page %s successfully", page_id)
-            return new_etag
-
-        except Exception as exc:
-            status = getattr(exc, "status_code", None) or getattr(
-                getattr(exc, "response", None), "status_code", None
-            )
-            if status == 412:
-                raise ConcurrentEditError(
-                    f"Page {page_id} was modified by another editor"
-                ) from exc
-
-            logger.error("Failed to update page %s: %s", page_id, exc)
-            raise OneNoteUpdateError(
-                f"Failed to update OneNote page {page_id}: {exc}"
             ) from exc
