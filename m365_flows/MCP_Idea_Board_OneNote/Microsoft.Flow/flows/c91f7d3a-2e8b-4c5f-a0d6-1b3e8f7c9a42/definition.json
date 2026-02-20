@@ -1,0 +1,189 @@
+{
+  "name": "a3c8e2f1-5b9d-4a1e-8c7f-2d6e9b0a4f53",
+  "id": "/providers/Microsoft.Flow/flows/a3c8e2f1-5b9d-4a1e-8c7f-2d6e9b0a4f53",
+  "type": "Microsoft.Flow/flows",
+  "properties": {
+    "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+    "displayName": "MCP_Idea_Board_OneNote",
+    "definition": {
+      "metadata": {
+        "workflowEntityId": null,
+        "processAdvisorMetadata": null,
+        "flowChargedByPaygo": null,
+        "flowclientsuspensionreason": "None",
+        "flowclientsuspensiontime": null,
+        "flowclientsuspensionreasondetails": null,
+        "creator": {
+          "id": "f05944de-cc34-4134-b53d-b7aaaebf36cb",
+          "type": "User",
+          "tenantId": "4173fc03-e6f9-4e07-a5c9-a78936cfc5e3"
+        },
+        "provisioningMethod": "FromDefinition",
+        "failureAlertSubscription": true,
+        "clientLastModifiedTime": "2026-02-19T17:00:00.0000000Z",
+        "connectionKeySavedTimeKey": "2026-02-19T17:00:00.0000000Z",
+        "creationSource": "Portal",
+        "modifiedSources": "Portal"
+      },
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "When_an_item_is_created": {
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 1
+          },
+          "evaluatedRecurrence": {
+            "frequency": "Minute",
+            "interval": 1
+          },
+          "splitOn": "@triggerOutputs()?['body/value']",
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetOnNewItems"
+            },
+            "parameters": {
+              "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+              "table": "Idea Board"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "actions": {
+        "Get_Notebooks": {
+          "runAfter": {},
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_onenote",
+              "connectionName": "shared_onenote",
+              "operationId": "GetNotebooks"
+            },
+            "parameters": {},
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Filter_MCP_Ideas_Notebook": {
+          "runAfter": {
+            "Get_Notebooks": [
+              "Succeeded"
+            ]
+          },
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Get_Notebooks')?['body']",
+            "where": "@equals(item()?['FileName'], 'MCP Ideas')"
+          }
+        },
+        "Get_Sections": {
+          "runAfter": {
+            "Filter_MCP_Ideas_Notebook": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_onenote",
+              "connectionName": "shared_onenote",
+              "operationId": "GetSectionsInNotebook"
+            },
+            "parameters": {
+              "notebookKey": "@first(body('Filter_MCP_Ideas_Notebook'))?['Key']"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Filter_New_Ideas_Section": {
+          "runAfter": {
+            "Get_Sections": [
+              "Succeeded"
+            ]
+          },
+          "type": "Query",
+          "inputs": {
+            "from": "@outputs('Get_Sections')?['body/value']",
+            "where": "@equals(item()?['name'], 'New Ideas')"
+          }
+        },
+        "Create_OneNote_Page": {
+          "runAfter": {
+            "Filter_New_Ideas_Section": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_onenote",
+              "connectionName": "shared_onenote",
+              "operationId": "CreatePageInSection"
+            },
+            "parameters": {
+              "notebookKey": "@first(body('Filter_MCP_Ideas_Notebook'))?['Key']",
+              "sectionId": "@first(body('Filter_New_Ideas_Section'))?['pagesUrl']",
+              "pageContent": "<html><head><title>@{triggerOutputs()?['body/Title']}</title></head><body><h1>@{triggerOutputs()?['body/Title']}</h1><p><strong>Created:</strong> @{triggerOutputs()?['body/CreatedDate']}</p><p><strong>Status:</strong> @{coalesce(triggerOutputs()?['body/Status'], 'New')}</p><p><strong>Category:</strong> @{coalesce(triggerOutputs()?['body/Category'], 'Uncategorized')}</p><hr/><h2>Notes</h2><p>@{coalesce(triggerOutputs()?['body/Notes'], '')}</p><hr/><h2>Bot Analysis</h2><p><em>[Placeholder for AI-generated analysis. This section will be updated by the MCP Python bot.]</em></p></body></html>"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Update_Idea_Board_Item": {
+          "runAfter": {
+            "Create_OneNote_Page": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PatchItem"
+            },
+            "parameters": {
+              "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+              "table": "Idea Board",
+              "id": "@triggerOutputs()?['body/ID']",
+              "item/OneNoteLink": "@outputs('Create_OneNote_Page')?['body/links/oneNoteWebUrl/href']",
+              "item/OneNotePageID": "@outputs('Create_OneNote_Page')?['body/id']"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "outputs": {}
+    },
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "connectionName": "shared-sharepointonline-connection",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+        "tier": "NotSpecified",
+        "apiName": "sharepointonline"
+      },
+      "shared_onenote": {
+        "connectionName": "shared-onenote-connection",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_onenote",
+        "tier": "NotSpecified",
+        "apiName": "onenote"
+      }
+    },
+    "flowFailureAlertSubscribed": false,
+    "isManaged": false
+  }
+}

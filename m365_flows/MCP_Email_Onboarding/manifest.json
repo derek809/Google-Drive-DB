@@ -1,0 +1,83 @@
+{
+  "schema": "1.0",
+  "details": {
+    "displayName": "MCP Email Onboarding Package",
+    "description": "Automated email processing for MCP tagged emails with SharePoint integration",
+    "createdTime": "2026-02-16T19:11:11.6766536Z",
+    "packageTelemetryId": "d3eb6911-8fd0-47b9-947b-9f31542d96b9",
+    "creator": "Derek Criollo",
+    "sourceEnvironment": ""
+  },
+  "resources": {
+    "4113d18a-2fa6-4386-b556-02f49a680884": {
+      "type": "Microsoft.Flow/flows",
+      "suggestedCreationType": "Update",
+      "creationType": "Existing, New, Update",
+      "details": {
+        "displayName": "MCP_Email_Onboarding"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Root",
+      "dependsOn": [
+        "197b2660-7e6a-4eb2-bb90-f6ab0ac0a27a",
+        "08cd1009-fd52-4005-bd24-0b191dfe6f5f",
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d",
+        "57e10a54-134f-47e0-88fa-87d9b6fed0fa"
+      ]
+    },
+    "197b2660-7e6a-4eb2-bb90-f6ab0ac0a27a": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+      "name": "shared_gmail",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "Gmail",
+        "iconUri": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/releases/v1.0.1777/1.0.1777.4410/gmail/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "08cd1009-fd52-4005-bd24-0b191dfe6f5f": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "derek@oldcitycapital.com",
+        "iconUri": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/releases/v1.0.1777/1.0.1777.4410/gmail/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "197b2660-7e6a-4eb2-bb90-f6ab0ac0a27a"
+      ]
+    },
+    "eaacb18a-4ba5-4550-8e0e-60ab406a482d": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+      "name": "shared_sharepointonline",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "SharePoint",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "57e10a54-134f-47e0-88fa-87d9b6fed0fa": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "SharePoint Connection",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d"
+      ]
+    }
+  }
+}

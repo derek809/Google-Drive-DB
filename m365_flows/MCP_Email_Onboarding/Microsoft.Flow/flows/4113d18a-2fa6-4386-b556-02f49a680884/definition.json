@@ -1,0 +1,322 @@
+{
+  "name": "04d7594a-1757-4aaa-a950-6befe97b7ead",
+  "id": "/providers/Microsoft.Flow/flows/04d7594a-1757-4aaa-a950-6befe97b7ead",
+  "type": "Microsoft.Flow/flows",
+  "properties": {
+    "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+    "displayName": "MCP_Email_Onboarding",
+    "definition": {
+      "metadata": {
+        "workflowEntityId": null,
+        "processAdvisorMetadata": null,
+        "flowChargedByPaygo": null,
+        "flowclientsuspensionreason": "None",
+        "flowclientsuspensiontime": null,
+        "flowclientsuspensionreasondetails": null,
+        "creator": {
+          "id": "f05944de-cc34-4134-b53d-b7aaaebf36cb",
+          "type": "User",
+          "tenantId": "4173fc03-e6f9-4e07-a5c9-a78936cfc5e3"
+        },
+        "provisioningMethod": "FromDefinition",
+        "failureAlertSubscription": true,
+        "clientLastModifiedTime": "2026-02-16T17:07:34.1732642Z",
+        "connectionKeySavedTimeKey": "2026-02-16T17:07:34.1732642Z",
+        "creationSource": "Portal",
+        "modifiedSources": "Portal"
+      },
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "When_a_new_email_arrives_(V3)": {
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 1
+          },
+          "evaluatedRecurrence": {
+            "frequency": "Minute",
+            "interval": 1
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+              "connectionName": "shared_gmail",
+              "operationId": "OnNewEmail"
+            },
+            "parameters": {
+              "importance": "All",
+              "includeAttachments": true,
+              "label": "Label_6539888246357682322"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "actions": {
+        "Initialize_HasAttachments": {
+          "runAfter": {},
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "HasAttachments",
+                "type": "boolean",
+                "value": false
+              }
+            ]
+          }
+        },
+        "Initialize_FileID": {
+          "runAfter": {
+            "Initialize_HasAttachments": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "FileID",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "Initialize_FileLink": {
+          "runAfter": {
+            "Initialize_FileID": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "FileLink",
+                "type": "string"
+              }
+            ]
+          }
+        },
+        "Initialize_AttachmentCount": {
+          "runAfter": {
+            "Initialize_FileLink": [
+              "Succeeded"
+            ]
+          },
+          "type": "InitializeVariable",
+          "inputs": {
+            "variables": [
+              {
+                "name": "AttachmentCount",
+                "type": "integer",
+                "value": 0
+              }
+            ]
+          }
+        },
+        "Check_Attachment_Count": {
+          "runAfter": {
+            "Initialize_AttachmentCount": [
+              "Succeeded"
+            ]
+          },
+          "type": "Compose",
+          "inputs": "@coalesce(length(triggerOutputs()?['body/attachments']), 0)"
+        },
+        "Set_AttachmentCount": {
+          "runAfter": {
+            "Check_Attachment_Count": [
+              "Succeeded"
+            ]
+          },
+          "type": "SetVariable",
+          "inputs": {
+            "name": "AttachmentCount",
+            "value": "@outputs('Check_Attachment_Count')"
+          }
+        },
+        "Has_Attachments_Condition": {
+          "runAfter": {
+            "Set_AttachmentCount": [
+              "Succeeded"
+            ]
+          },
+          "type": "If",
+          "expression": {
+            "and": [
+              {
+                "greater": [
+                  "@variables('AttachmentCount')",
+                  0
+                ]
+              }
+            ]
+          },
+          "actions": {
+            "Set_HasAttachments_True": {
+              "type": "SetVariable",
+              "inputs": {
+                "name": "HasAttachments",
+                "value": true
+              }
+            },
+            "Apply_to_each_Attachment": {
+              "type": "Foreach",
+              "foreach": "@triggerOutputs()?['body/attachments']",
+              "actions": {
+                "Clean_Subject": {
+                  "type": "Compose",
+                  "inputs": "@replace(replace(replace(replace(replace(triggerOutputs()?['body/subject'], '/', '-'), '\\\\', '-'), ':', '-'), '?', ''), '*', '')"
+                },
+                "Build_Filename": {
+                  "type": "Compose",
+                  "inputs": "@concat(outputs('Clean_Subject'), '_', triggerOutputs()?['body/id'], '_', utcNow('yyyyMMddHHmmss'), '_', items('Apply_to_each_Attachment')?['name'])",
+                  "runAfter": {
+                    "Clean_Subject": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Create_file": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "CreateFile"
+                    },
+                    "parameters": {
+                      "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+                      "folderPath": "/Shared Documents/Temporary Files",
+                      "name": "@outputs('Build_Filename')",
+                      "body": "@base64ToBinary(items('Apply_to_each_Attachment')?['contentBytes'])"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Build_Filename": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Set_FileID": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "FileID",
+                    "value": "@outputs('Create_file')?['body/Id']"
+                  },
+                  "runAfter": {
+                    "Create_file": [
+                      "Succeeded"
+                    ]
+                  }
+                },
+                "Set_FileLink": {
+                  "type": "SetVariable",
+                  "inputs": {
+                    "name": "FileLink",
+                    "value": "@outputs('Create_file')?['body/{Link}']"
+                  },
+                  "runAfter": {
+                    "Set_FileID": [
+                      "Succeeded"
+                    ]
+                  }
+                }
+              },
+              "runAfter": {
+                "Set_HasAttachments_True": [
+                  "Succeeded"
+                ]
+              }
+            }
+          },
+          "else": {
+            "actions": {
+              "Set_HasAttachments_False": {
+                "type": "SetVariable",
+                "inputs": {
+                  "name": "HasAttachments",
+                  "value": false
+                }
+              }
+            }
+          }
+        },
+        "Create_Email_Preview": {
+          "runAfter": {
+            "Has_Attachments_Condition": [
+              "Succeeded"
+            ]
+          },
+          "type": "Compose",
+          "inputs": "@if(greater(length(coalesce(triggerOutputs()?['body/bodyPreview'], '')), 200), substring(triggerOutputs()?['body/bodyPreview'], 0, 200), coalesce(triggerOutputs()?['body/bodyPreview'], ''))"
+        },
+        "Create_item_in_Todo_List": {
+          "runAfter": {
+            "Create_Email_Preview": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "PostItem"
+            },
+            "parameters": {
+              "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+              "table": "Todo List",
+              "item/Title": "@triggerOutputs()?['body/from']",
+              "item/field_1": "@triggerOutputs()?['body/subject']",
+              "item/field_2": "@outputs('Create_Email_Preview')",
+              "item/field_5": "@variables('HasAttachments')",
+              "item/field_6": "New",
+              "item/field_7": "@triggerOutputs()?['body/id']",
+              "item/field_8": "@utcNow()",
+              "item/AttachmentCount": "@variables('AttachmentCount')",
+              "item/FileID": "@variables('FileID')",
+              "item/FileLink": "@variables('FileLink')",
+              "item/GmailLink": "@concat('https://mail.google.com/mail/u/0/#inbox/', triggerOutputs()?['body/conversationId'])",
+              "item/ThreadID": "@triggerOutputs()?['body/conversationId']",
+              "item/EmailReceived": "@triggerOutputs()?['body/receivedDateTime']"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        }
+      },
+      "outputs": {}
+    },
+    "connectionReferences": {
+      "shared_gmail": {
+        "connectionName": "shared-gmail-02880b71-c3d6-4773-836d-01b2c70d77c0",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+        "tier": "NotSpecified",
+        "apiName": "gmail"
+      },
+      "shared_sharepointonline": {
+        "connectionName": "shared-sharepointonline-connection",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+        "tier": "NotSpecified",
+        "apiName": "sharepointonline"
+      }
+    },
+    "flowFailureAlertSubscribed": false,
+    "isManaged": false
+  }
+}

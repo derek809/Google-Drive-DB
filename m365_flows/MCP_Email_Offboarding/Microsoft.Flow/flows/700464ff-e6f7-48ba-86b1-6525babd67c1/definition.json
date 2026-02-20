@@ -1,0 +1,267 @@
+{
+  "name": "ed77a4d7-1773-43c8-9bd3-b8bfb574098f",
+  "id": "/providers/Microsoft.Flow/flows/ed77a4d7-1773-43c8-9bd3-b8bfb574098f",
+  "type": "Microsoft.Flow/flows",
+  "properties": {
+    "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+    "displayName": "MCP_Email_Offboarding",
+    "definition": {
+      "metadata": {
+        "workflowEntityId": null,
+        "processAdvisorMetadata": null,
+        "flowChargedByPaygo": null,
+        "flowclientsuspensionreason": "None",
+        "flowclientsuspensiontime": null,
+        "flowclientsuspensionreasondetails": null,
+        "creator": {
+          "id": "f05944de-cc34-4134-b53d-b7aaaebf36cb",
+          "type": "User",
+          "tenantId": "4173fc03-e6f9-4e07-a5c9-a78936cfc5e3"
+        },
+        "provisioningMethod": "FromDefinition",
+        "failureAlertSubscription": true,
+        "clientLastModifiedTime": "2026-02-19T12:00:00.0000000Z",
+        "connectionKeySavedTimeKey": "2026-02-19T12:00:00.0000000Z",
+        "creationSource": "Portal",
+        "modifiedSources": "Portal"
+      },
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "Recurrence": {
+          "recurrence": {
+            "frequency": "Minute",
+            "interval": 5
+          },
+          "evaluatedRecurrence": {
+            "frequency": "Minute",
+            "interval": 5
+          },
+          "type": "Recurrence"
+        }
+      },
+      "actions": {
+        "Get_Todo_List_Items": {
+          "runAfter": {},
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "GetItems"
+            },
+            "parameters": {
+              "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+              "table": "Todo List",
+              "$top": 500
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Apply_to_each_Todo_Item": {
+          "runAfter": {
+            "Get_Todo_List_Items": [
+              "Succeeded"
+            ]
+          },
+          "type": "Foreach",
+          "foreach": "@outputs('Get_Todo_List_Items')?['body/value']",
+          "actions": {
+            "Get_Email_Details": {
+              "type": "OpenApiConnection",
+              "inputs": {
+                "host": {
+                  "apiId": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+                  "connectionName": "shared_gmail",
+                  "operationId": "GetEmail"
+                },
+                "parameters": {
+                  "id": "@items('Apply_to_each_Todo_Item')?['field_7']",
+                  "includeAttachments": false
+                },
+                "authentication": "@parameters('$authentication')"
+              },
+              "runAfter": {}
+            },
+            "Check_If_Label_Removed": {
+              "type": "If",
+              "expression": {
+                "not": {
+                  "contains": [
+                    "@join(outputs('Get_Email_Details')?['body/LabelIds'], ',')",
+                    "Label_6539888246357682322"
+                  ]
+                }
+              },
+              "actions": {
+                "Check_If_File_Exists": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "not": {
+                          "equals": [
+                            "@coalesce(items('Apply_to_each_Todo_Item')?['FileID'], '')",
+                            ""
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Delete_SharePoint_File": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "DeleteFile"
+                        },
+                        "parameters": {
+                          "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+                          "id": "@items('Apply_to_each_Todo_Item')?['FileID']"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {}
+                },
+                "Delete_Todo_List_Item": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "DeleteItem"
+                    },
+                    "parameters": {
+                      "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+                      "table": "Todo List",
+                      "id": "@items('Apply_to_each_Todo_Item')?['ID']"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Check_If_File_Exists": [
+                      "Succeeded",
+                      "Failed"
+                    ]
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {
+                "Get_Email_Details": [
+                  "Succeeded"
+                ]
+              }
+            },
+            "Handle_Deleted_Email": {
+              "type": "Scope",
+              "actions": {
+                "Check_If_File_Exists_2": {
+                  "type": "If",
+                  "expression": {
+                    "and": [
+                      {
+                        "not": {
+                          "equals": [
+                            "@coalesce(items('Apply_to_each_Todo_Item')?['FileID'], '')",
+                            ""
+                          ]
+                        }
+                      }
+                    ]
+                  },
+                  "actions": {
+                    "Delete_SharePoint_File_2": {
+                      "type": "OpenApiConnection",
+                      "inputs": {
+                        "host": {
+                          "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                          "connectionName": "shared_sharepointonline",
+                          "operationId": "DeleteFile"
+                        },
+                        "parameters": {
+                          "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+                          "id": "@items('Apply_to_each_Todo_Item')?['FileID']"
+                        },
+                        "authentication": "@parameters('$authentication')"
+                      }
+                    }
+                  },
+                  "else": {
+                    "actions": {}
+                  },
+                  "runAfter": {}
+                },
+                "Delete_Todo_List_Item_2": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "DeleteItem"
+                    },
+                    "parameters": {
+                      "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+                      "table": "Todo List",
+                      "id": "@items('Apply_to_each_Todo_Item')?['ID']"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  },
+                  "runAfter": {
+                    "Check_If_File_Exists_2": [
+                      "Succeeded",
+                      "Failed"
+                    ]
+                  }
+                }
+              },
+              "runAfter": {
+                "Get_Email_Details": [
+                  "Failed"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "outputs": {}
+    },
+    "connectionReferences": {
+      "shared_gmail": {
+        "connectionName": "shared-gmail-02880b71-c3d6-4773-836d-01b2c70d77c0",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+        "tier": "NotSpecified",
+        "apiName": "gmail"
+      },
+      "shared_sharepointonline": {
+        "connectionName": "shared-sharepointonline-connection",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+        "tier": "NotSpecified",
+        "apiName": "sharepointonline"
+      }
+    },
+    "flowFailureAlertSubscribed": false,
+    "isManaged": false
+  }
+}

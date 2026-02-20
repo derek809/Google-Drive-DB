@@ -1,0 +1,54 @@
+{
+  "schema": "1.0",
+  "details": {
+    "displayName": "MCP 60-Day Reaper Package",
+    "description": "Daily scheduled cleanup that deletes files older than 60 days from Temporary Files staging folder",
+    "createdTime": "2026-02-19T18:00:00.0000000Z",
+    "packageTelemetryId": "8c5f1a3e-2d7b-49e6-a4c0-b6d9e3f7a812",
+    "creator": "Derek Criollo",
+    "sourceEnvironment": ""
+  },
+  "resources": {
+    "d4a8f2c6-3e7b-41d9-b0c5-2a9e1f6d8b43": {
+      "type": "Microsoft.Flow/flows",
+      "suggestedCreationType": "Update",
+      "creationType": "Existing, New, Update",
+      "details": {
+        "displayName": "MCP_60Day_Reaper"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Root",
+      "dependsOn": [
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d",
+        "57e10a54-134f-47e0-88fa-87d9b6fed0fa"
+      ]
+    },
+    "eaacb18a-4ba5-4550-8e0e-60ab406a482d": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+      "name": "shared_sharepointonline",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "SharePoint",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "57e10a54-134f-47e0-88fa-87d9b6fed0fa": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "SharePoint Connection",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d"
+      ]
+    }
+  }
+}

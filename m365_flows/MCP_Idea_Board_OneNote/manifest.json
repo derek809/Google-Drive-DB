@@ -1,0 +1,83 @@
+{
+  "schema": "1.0",
+  "details": {
+    "displayName": "MCP Idea Board OneNote Bridge Package",
+    "description": "Creates OneNote pages when new ideas are added to the Idea Board list and syncs metadata back",
+    "createdTime": "2026-02-19T17:00:00.0000000Z",
+    "packageTelemetryId": "f4d2a8e6-7c1b-49d3-b5e0-8a3f6c2d1e97",
+    "creator": "Derek Criollo",
+    "sourceEnvironment": ""
+  },
+  "resources": {
+    "c91f7d3a-2e8b-4c5f-a0d6-1b3e8f7c9a42": {
+      "type": "Microsoft.Flow/flows",
+      "suggestedCreationType": "Update",
+      "creationType": "Existing, New, Update",
+      "details": {
+        "displayName": "MCP_Idea_Board_OneNote"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Root",
+      "dependsOn": [
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d",
+        "57e10a54-134f-47e0-88fa-87d9b6fed0fa",
+        "3b7e9f1c-8a2d-4e6b-c0f5-d4a1b3e8c7f2",
+        "e5c1d8a3-6f4b-42e9-b7d0-9a2f3c8e1b56"
+      ]
+    },
+    "eaacb18a-4ba5-4550-8e0e-60ab406a482d": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+      "name": "shared_sharepointonline",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "SharePoint",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "57e10a54-134f-47e0-88fa-87d9b6fed0fa": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "SharePoint Connection",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d"
+      ]
+    },
+    "3b7e9f1c-8a2d-4e6b-c0f5-d4a1b3e8c7f2": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_onenote",
+      "name": "shared_onenote",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "OneNote (Business)",
+        "iconUri": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/releases/v1.0.1793/1.0.1793.4581/onenote/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "e5c1d8a3-6f4b-42e9-b7d0-9a2f3c8e1b56": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "OneNote (Business) Connection",
+        "iconUri": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/releases/v1.0.1793/1.0.1793.4581/onenote/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "3b7e9f1c-8a2d-4e6b-c0f5-d4a1b3e8c7f2"
+      ]
+    }
+  }
+}

@@ -1,0 +1,145 @@
+{
+  "name": "b7d3e1a4-9c2f-4b8e-a5d0-6f1c3e8a7b29",
+  "id": "/providers/Microsoft.Flow/flows/b7d3e1a4-9c2f-4b8e-a5d0-6f1c3e8a7b29",
+  "type": "Microsoft.Flow/flows",
+  "properties": {
+    "apiId": "/providers/Microsoft.PowerApps/apis/shared_logicflows",
+    "displayName": "MCP_60Day_Reaper",
+    "definition": {
+      "metadata": {
+        "workflowEntityId": null,
+        "processAdvisorMetadata": null,
+        "flowChargedByPaygo": null,
+        "flowclientsuspensionreason": "None",
+        "flowclientsuspensiontime": null,
+        "flowclientsuspensionreasondetails": null,
+        "creator": {
+          "id": "f05944de-cc34-4134-b53d-b7aaaebf36cb",
+          "type": "User",
+          "tenantId": "4173fc03-e6f9-4e07-a5c9-a78936cfc5e3"
+        },
+        "provisioningMethod": "FromDefinition",
+        "failureAlertSubscription": true,
+        "clientLastModifiedTime": "2026-02-19T18:00:00.0000000Z",
+        "connectionKeySavedTimeKey": "2026-02-19T18:00:00.0000000Z",
+        "creationSource": "Portal",
+        "modifiedSources": "Portal"
+      },
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "contentVersion": "1.0.0.0",
+      "parameters": {
+        "$authentication": {
+          "defaultValue": {},
+          "type": "SecureObject"
+        },
+        "$connections": {
+          "defaultValue": {},
+          "type": "Object"
+        }
+      },
+      "triggers": {
+        "Recurrence": {
+          "recurrence": {
+            "frequency": "Day",
+            "interval": 1
+          },
+          "evaluatedRecurrence": {
+            "frequency": "Day",
+            "interval": 1
+          },
+          "type": "Recurrence"
+        }
+      },
+      "actions": {
+        "Calculate_Cutoff_Date": {
+          "runAfter": {},
+          "type": "Compose",
+          "inputs": "@addDays(utcNow(), -60)"
+        },
+        "List_Files_In_Temporary_Files": {
+          "runAfter": {
+            "Calculate_Cutoff_Date": [
+              "Succeeded"
+            ]
+          },
+          "type": "OpenApiConnection",
+          "inputs": {
+            "host": {
+              "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+              "connectionName": "shared_sharepointonline",
+              "operationId": "ListFolder"
+            },
+            "parameters": {
+              "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+              "id": "/Shared Documents/Temporary Files"
+            },
+            "authentication": "@parameters('$authentication')"
+          }
+        },
+        "Apply_to_each_File": {
+          "runAfter": {
+            "List_Files_In_Temporary_Files": [
+              "Succeeded"
+            ]
+          },
+          "type": "Foreach",
+          "foreach": "@outputs('List_Files_In_Temporary_Files')?['body']",
+          "actions": {
+            "Check_If_File_Is_Old": {
+              "type": "If",
+              "expression": {
+                "and": [
+                  {
+                    "less": [
+                      "@items('Apply_to_each_File')?['LastModified']",
+                      "@outputs('Calculate_Cutoff_Date')"
+                    ]
+                  },
+                  {
+                    "equals": [
+                      "@items('Apply_to_each_File')?['IsFolder']",
+                      false
+                    ]
+                  }
+                ]
+              },
+              "actions": {
+                "Delete_Old_File": {
+                  "type": "OpenApiConnection",
+                  "inputs": {
+                    "host": {
+                      "apiId": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+                      "connectionName": "shared_sharepointonline",
+                      "operationId": "DeleteFile"
+                    },
+                    "parameters": {
+                      "dataset": "https://oldcitysecuritiesllc.sharepoint.com/sites/DerekPersonal",
+                      "id": "@items('Apply_to_each_File')?['Id']"
+                    },
+                    "authentication": "@parameters('$authentication')"
+                  }
+                }
+              },
+              "else": {
+                "actions": {}
+              },
+              "runAfter": {}
+            }
+          }
+        }
+      },
+      "outputs": {}
+    },
+    "connectionReferences": {
+      "shared_sharepointonline": {
+        "connectionName": "shared-sharepointonline-connection",
+        "source": "Embedded",
+        "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+        "tier": "NotSpecified",
+        "apiName": "sharepointonline"
+      }
+    },
+    "flowFailureAlertSubscribed": false,
+    "isManaged": false
+  }
+}

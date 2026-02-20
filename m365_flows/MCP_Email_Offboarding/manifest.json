@@ -1,0 +1,83 @@
+{
+  "schema": "1.0",
+  "details": {
+    "displayName": "MCP Email Offboarding Package",
+    "description": "Cleanup flow that removes Todo List items and staging files when the MCP label is removed from Gmail",
+    "createdTime": "2026-02-18T12:00:00.0000000Z",
+    "packageTelemetryId": "b9944644-8a58-41cc-aa98-0a87c422c6f0",
+    "creator": "Derek Criollo",
+    "sourceEnvironment": ""
+  },
+  "resources": {
+    "700464ff-e6f7-48ba-86b1-6525babd67c1": {
+      "type": "Microsoft.Flow/flows",
+      "suggestedCreationType": "Update",
+      "creationType": "Existing, New, Update",
+      "details": {
+        "displayName": "MCP_Email_Offboarding"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Root",
+      "dependsOn": [
+        "197b2660-7e6a-4eb2-bb90-f6ab0ac0a27a",
+        "08cd1009-fd52-4005-bd24-0b191dfe6f5f",
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d",
+        "57e10a54-134f-47e0-88fa-87d9b6fed0fa"
+      ]
+    },
+    "197b2660-7e6a-4eb2-bb90-f6ab0ac0a27a": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_gmail",
+      "name": "shared_gmail",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "Gmail",
+        "iconUri": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/releases/v1.0.1777/1.0.1777.4410/gmail/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "08cd1009-fd52-4005-bd24-0b191dfe6f5f": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "derek@oldcitycapital.com",
+        "iconUri": "https://conn-afd-prod-endpoint-bmc9bqahasf3grgk.b01.azurefd.net/releases/v1.0.1777/1.0.1777.4410/gmail/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "197b2660-7e6a-4eb2-bb90-f6ab0ac0a27a"
+      ]
+    },
+    "eaacb18a-4ba5-4550-8e0e-60ab406a482d": {
+      "id": "/providers/Microsoft.PowerApps/apis/shared_sharepointonline",
+      "name": "shared_sharepointonline",
+      "type": "Microsoft.PowerApps/apis",
+      "suggestedCreationType": "Existing",
+      "details": {
+        "displayName": "SharePoint",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "System",
+      "hierarchy": "Child",
+      "dependsOn": []
+    },
+    "57e10a54-134f-47e0-88fa-87d9b6fed0fa": {
+      "type": "Microsoft.PowerApps/apis/connections",
+      "suggestedCreationType": "Existing",
+      "creationType": "Existing",
+      "details": {
+        "displayName": "SharePoint Connection",
+        "iconUri": "https://connectoricons-prod.azureedge.net/releases/v1.0.1670/1.0.1670.3520/sharepointonline/icon.png"
+      },
+      "configurableBy": "User",
+      "hierarchy": "Child",
+      "dependsOn": [
+        "eaacb18a-4ba5-4550-8e0e-60ab406a482d"
+      ]
+    }
+  }
+}
