@@ -54,6 +54,7 @@ class HybridFileFetcher:
         graph_client,
         gdrive_client,
         config_loader: Callable[[str], Any],
+        file_session=None,
     ) -> None:
         """
         Initialize hybrid file fetcher with circuit breaker defaults.
@@ -64,9 +65,13 @@ class HybridFileFetcher:
             gdrive_client: Legacy Google Drive client with download(path)
                 method that returns bytes.
             config_loader: Callable that resolves dotted config keys to values.
+            file_session: Optional httpx.AsyncClient with extended timeout
+                for large file downloads. When provided, SharePoint downloads
+                use this session instead of the graph client's default session.
         """
         self._graph = graph_client
         self._gdrive = gdrive_client
+        self._file_session = file_session
         self._site_id = config_loader("sharepoint.site_id")
         self._max_file_size = (
             config_loader("microsoft.max_file_size_mb") or 10
@@ -201,7 +206,20 @@ class HybridFileFetcher:
         )
 
         try:
+            if self._file_session is not None:
+                # Use dedicated file download session (5min timeout)
+                headers = await self._graph.get_auth_headers()
+                resp = await self._file_session.get(
+                    url, headers=headers, follow_redirects=True
+                )
+                if resp.status_code == 429:
+                    raise _ThrottledError("SharePoint returned 429")
+                resp.raise_for_status()
+                return resp.content
+
             resp = await self._graph.get(url, stream=True)
+        except _ThrottledError:
+            raise
         except Exception as exc:
             status = getattr(exc, "status_code", None) or getattr(
                 getattr(exc, "response", None), "status_code", None

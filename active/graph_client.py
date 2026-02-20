@@ -17,8 +17,10 @@ Usage:
 """
 
 import asyncio
+import atexit
 import json
 import logging
+import os
 import random
 import time
 from typing import Any, Dict, List, Optional, Union
@@ -77,6 +79,7 @@ class GraphClient:
         tenant_id: str,
         client_secret: str,
         session: httpx.AsyncClient,
+        token_cache_path: Optional[str] = None,
     ) -> None:
         """
         Initialize the Graph client.
@@ -86,6 +89,9 @@ class GraphClient:
             tenant_id: Azure AD tenant (directory) ID.
             client_secret: Azure AD client secret value.
             session: Shared httpx.AsyncClient from async_session_manager.
+            token_cache_path: Optional file path for persistent MSAL token
+                cache. When set, tokens survive process restarts and reduce
+                Azure AD requests on startup.
         """
         self._session = session
         self._client_id = client_id
@@ -93,21 +99,55 @@ class GraphClient:
         self._client_secret = client_secret
         self._authority = f"https://login.microsoftonline.com/{tenant_id}"
 
+        # Persistent token cache
+        self._cache_path = token_cache_path
+        self._cache = self._build_persistent_cache()
+
         self._msal_app = msal.ConfidentialClientApplication(
             client_id,
             authority=self._authority,
             client_credential=client_secret,
+            token_cache=self._cache,
         )
+
+        if self._cache_path:
+            atexit.register(self._save_cache_sync)
 
         # Rate limiting state
         self._last_request_time: float = 0.0
         self._min_interval: float = 0.1  # 100ms
 
         logger.info(
-            "GraphClient initialized (tenant=%s..., client=%s...)",
+            "GraphClient initialized (tenant=%s..., client=%s..., cache=%s)",
             tenant_id[:8],
             client_id[:8],
+            "persistent" if self._cache_path else "in-memory",
         )
+
+    # ── Persistent Token Cache ────────────────────────────────────────
+
+    def _build_persistent_cache(self) -> msal.SerializableTokenCache:
+        """Create and hydrate a persistent MSAL token cache from disk."""
+        cache = msal.SerializableTokenCache()
+        if self._cache_path and os.path.exists(self._cache_path):
+            try:
+                with open(self._cache_path, "r") as f:
+                    cache.deserialize(f.read())
+                logger.info("Token cache loaded from %s", self._cache_path)
+            except (json.JSONDecodeError, IOError) as exc:
+                logger.warning("Corrupt token cache, starting fresh: %s", exc)
+        return cache
+
+    def _save_cache_sync(self) -> None:
+        """Persist the MSAL token cache to disk if it has changed."""
+        if not self._cache_path or not self._cache.has_state_changed:
+            return
+        try:
+            with open(self._cache_path, "w") as f:
+                f.write(self._cache.serialize())
+            logger.debug("Token cache saved to %s", self._cache_path)
+        except IOError as exc:
+            logger.warning("Could not save token cache: %s", exc)
 
     # ── Token Management ─────────────────────────────────────────────
 
@@ -147,15 +187,19 @@ class GraphClient:
                 f"MSAL token acquisition failed: {error} — {error_desc}"
             )
 
+        self._save_cache_sync()
         return result["access_token"]
 
     def _clear_token_cache(self) -> None:
         """Clear MSAL token cache to force re-acquisition."""
+        self._cache = msal.SerializableTokenCache()
         self._msal_app = msal.ConfidentialClientApplication(
             self._client_id,
             authority=self._authority,
             client_credential=self._client_secret,
+            token_cache=self._cache,
         )
+        self._save_cache_sync()
         logger.info("MSAL token cache cleared")
 
     # ── Rate Limiting ────────────────────────────────────────────────
@@ -175,6 +219,13 @@ class GraphClient:
             await asyncio.sleep(required_gap - elapsed)
 
         self._last_request_time = time.monotonic()
+
+    # ── Public Helpers ─────────────────────────────────────────────────
+
+    async def get_auth_headers(self) -> Dict[str, str]:
+        """Return Bearer auth headers for use with external sessions."""
+        token = await self._get_access_token()
+        return {"Authorization": f"Bearer {token}"}
 
     # ── HTTP Methods ─────────────────────────────────────────────────
 

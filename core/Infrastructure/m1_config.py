@@ -338,6 +338,9 @@ ONENOTE_NOTEBOOK_ID = os.getenv('ONENOTE_NOTEBOOK_ID', '')
 ACTION_ITEMS_LIST_ID = os.getenv('ACTION_ITEMS_LIST_ID', '')
 IDEA_BOARD_LIST_ID = os.getenv('IDEA_BOARD_LIST_ID', '')
 
+# Persistent token cache path (saves Azure AD quota across restarts)
+M365_TOKEN_CACHE_PATH = os.path.join(CREDENTIALS_DIR, '.msal_token_cache.json')
+
 # Operational settings
 M365_STALE_TASK_THRESHOLD_MINUTES = int(
     os.getenv('M365_STALE_TASK_THRESHOLD_MINUTES', '15')
@@ -388,6 +391,7 @@ def get_m365_config_loader():
         "microsoft.onenote_notebook_id": ONENOTE_NOTEBOOK_ID,
         "microsoft.action_items_list_id": ACTION_ITEMS_LIST_ID,
         "microsoft.idea_board_list_id": IDEA_BOARD_LIST_ID,
+        "microsoft.token_cache_path": M365_TOKEN_CACHE_PATH,
         "microsoft.stale_task_threshold_minutes": M365_STALE_TASK_THRESHOLD_MINUTES,
         "microsoft.max_file_size_mb": M365_MAX_FILE_SIZE_MB,
         "microsoft.circuit_breaker_cooldown_seconds": M365_CIRCUIT_BREAKER_COOLDOWN_SECONDS,

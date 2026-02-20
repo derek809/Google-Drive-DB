@@ -16,13 +16,14 @@ This is the main entry point for Mode 4. It:
 """
 
 import os
+import signal
 import sys
 import asyncio
 import logging
 from logging.handlers import RotatingFileHandler
 import html
 from datetime import datetime
-from typing import Dict, Any, Optional
+from typing import Callable, Coroutine, Dict, Any, Optional
 
 # Set up logging with rotation to prevent unbounded log growth
 _base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -268,6 +269,41 @@ class Mode4Processor:
         return self._kimi
 
     # ==================
+    # TASK SUPERVISION
+    # ==================
+
+    async def _supervised(
+        self,
+        name: str,
+        coro_factory: Callable[[], Coroutine],
+        restart_delay: float = 5.0,
+    ):
+        """
+        Run a coroutine with automatic restart on crash.
+
+        Prevents one crashed background service from killing the entire bot.
+        Only CancelledError propagates (correct for shutdown).
+
+        Args:
+            name: Human-readable task name for logging.
+            coro_factory: Zero-arg callable that returns a coroutine.
+            restart_delay: Seconds to wait before restarting after crash.
+        """
+        while True:
+            try:
+                logger.info("Starting supervised task: %s", name)
+                await coro_factory()
+            except asyncio.CancelledError:
+                logger.info("Supervised task %s cancelled", name)
+                raise
+            except Exception as exc:
+                logger.error(
+                    "Supervised task %s crashed: %s — restarting in %ds",
+                    name, exc, restart_delay, exc_info=True,
+                )
+                await asyncio.sleep(restart_delay)
+
+    # ==================
     # MICROSOFT 365 INTEGRATION
     # ==================
 
@@ -277,12 +313,14 @@ class Mode4Processor:
             from graph_client import GraphClient
             from async_session_manager import get_session
 
+            config_loader = get_m365_config_loader()
             session = await get_session()
             self._graph_client = GraphClient(
                 client_id=M365_CLIENT_ID,
                 tenant_id=M365_TENANT_ID,
                 client_secret=M365_CLIENT_SECRET,
                 session=session,
+                token_cache_path=config_loader("microsoft.token_cache_path"),
             )
             logger.info("Graph client initialized")
 
@@ -735,7 +773,13 @@ class Mode4Processor:
         self.telegram.run(message_callback=self.process_message)
 
     async def run_async(self):
-        """Run the processor asynchronously."""
+        """
+        Run the processor asynchronously with structured concurrency.
+
+        All background services run inside an asyncio.TaskGroup with
+        automatic restart via _supervised(). Graceful shutdown on
+        SIGINT/SIGTERM cancels the TaskGroup.
+        """
         logger.info("Starting Mode 4 Processor (async)...")
 
         errors = self._validate_config()
@@ -754,10 +798,65 @@ class Mode4Processor:
         # Process any queued messages
         await self._process_startup_queue()
 
-        # Start M365 integration (if enabled)
-        await self.start_m365_engine()
+        # Initialize M365 components (but don't start loops yet)
+        if M365_ENABLED:
+            await self.start_m365_engine()
 
-        await self.telegram.run_async(message_callback=self.process_message)
+        # Signal handling for graceful shutdown
+        loop = asyncio.get_running_loop()
+        shutdown_event = asyncio.Event()
+
+        def _signal_handler():
+            logger.info("Shutdown signal received")
+            shutdown_event.set()
+
+        for sig in (signal.SIGINT, signal.SIGTERM):
+            loop.add_signal_handler(sig, _signal_handler)
+
+        # Run all services with supervision
+        try:
+            async with asyncio.TaskGroup() as tg:
+                # Telegram listener (primary service)
+                tg.create_task(self._supervised(
+                    "telegram",
+                    lambda: self.telegram.run_async(
+                        message_callback=self.process_message
+                    ),
+                ))
+
+                # M365 sync loop (conditional)
+                if M365_ENABLED and self._m365_proactive_engine:
+                    tg.create_task(self._supervised(
+                        "m365_sync",
+                        self._m365_sync_loop,
+                        restart_delay=10.0,
+                    ))
+
+                # Proactive engine workers (conditional)
+                from m1_config import PROACTIVE_ENGINE_ENABLED
+                if PROACTIVE_ENGINE_ENABLED:
+                    tg.create_task(self._supervised(
+                        "proactive_worker",
+                        self.proactive_engine.worker_loop,
+                        restart_delay=10.0,
+                    ))
+                    tg.create_task(self._supervised(
+                        "morning_digest",
+                        self.proactive_engine.schedule_morning_digest,
+                        restart_delay=30.0,
+                    ))
+
+                # Shutdown watcher — cancels TaskGroup on signal
+                async def _wait_for_shutdown():
+                    await shutdown_event.wait()
+                    raise asyncio.CancelledError("Shutdown requested")
+
+                tg.create_task(_wait_for_shutdown())
+
+        except* asyncio.CancelledError:
+            logger.info("All supervised tasks cancelled")
+        finally:
+            await self.cleanup_async()
 
     async def _process_startup_queue(self):
         """
@@ -915,27 +1014,32 @@ class Mode4Processor:
 
         return errors
 
-    def cleanup(self):
-        """Clean up resources."""
-        # Close shared HTTP session (for M365 Graph client)
+    async def cleanup_async(self):
+        """Async cleanup — properly awaits all async resources."""
+        logger.info("Starting async cleanup...")
+
+        # Close shared HTTP sessions
         try:
             from async_session_manager import close as close_session
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                loop.create_task(close_session())
-            else:
-                loop.run_until_complete(close_session())
-            logger.info("Shared HTTP session closed")
+            await close_session()
+            logger.info("Shared HTTP sessions closed")
         except Exception as e:
-            logger.warning(f"Error closing HTTP session: {e}")
+            logger.warning(f"Error closing HTTP sessions: {e}")
 
-        # Cancel background tasks
+        # Cancel any remaining background tasks
         for task in self._background_tasks:
             if not task.done():
                 task.cancel()
-                logger.info(f"Cancelled background task: {task.get_name()}")
+        if self._background_tasks:
+            await asyncio.gather(*self._background_tasks, return_exceptions=True)
         self._background_tasks.clear()
 
+        # Sync cleanup
+        self._cleanup_sync()
+        logger.info("Async cleanup complete")
+
+    def _cleanup_sync(self):
+        """Close synchronous resources (Sheets, DB, etc.)."""
         if self._sheets:
             self._sheets.close()
         if self._pattern_matcher:
@@ -945,6 +1049,27 @@ class Mode4Processor:
         if self._db_manager:
             del self._db_manager
             self._db_manager = None
+
+    def cleanup(self):
+        """Clean up resources. Delegates to async if possible."""
+        try:
+            loop = asyncio.get_running_loop()
+            # Already in an async context — schedule cleanup
+            loop.create_task(self.cleanup_async())
+        except RuntimeError:
+            # No running loop — use sync approach
+            try:
+                from async_session_manager import close as close_session
+                asyncio.run(close_session())
+            except Exception as e:
+                logger.warning(f"Error closing HTTP sessions: {e}")
+
+            for task in self._background_tasks:
+                if not task.done():
+                    task.cancel()
+            self._background_tasks.clear()
+
+            self._cleanup_sync()
 
 
 # ==================

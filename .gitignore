@@ -6,5 +6,4 @@ data/
 mode4/
 *.log
 .env
-.env
-.env
+.msal_token_cache.json
