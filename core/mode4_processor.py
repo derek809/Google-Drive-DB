@@ -130,6 +130,12 @@ class Mode4Processor:
         self._claude: Optional[ClaudeClient] = None
         self._kimi: Optional[KimiClient] = None
 
+        # OpenClaw bridge dependencies (lazy loading)
+        self._todo_manager = None
+        self._skill_manager = None
+        self._on_demand_digest = None
+        self._daily_digest = None
+
         # Microsoft 365 clients (lazy loading, gated by M365_ENABLED)
         self._graph_client = None
         self._sharepoint_reader = None
@@ -267,6 +273,47 @@ class Mode4Processor:
             self._kimi = KimiClient()
             logger.info("Kimi K2 client initialized")
         return self._kimi
+
+    @property
+    def todo_manager(self):
+        """Lazy-load TodoManager (Google Sheets-backed task list)."""
+        if self._todo_manager is None:
+            from todo_manager import TodoManager
+            self._todo_manager = TodoManager()
+            logger.info("TodoManager initialized")
+        return self._todo_manager
+
+    @property
+    def skill_manager(self):
+        """Lazy-load SkillManager (idea capture + Master Doc storage)."""
+        if self._skill_manager is None:
+            from skill_manager import SkillManager
+            self._skill_manager = SkillManager()
+            logger.info("SkillManager initialized")
+        return self._skill_manager
+
+    @property
+    def on_demand_digest(self):
+        """Lazy-load OnDemandDigest (current snapshot summary)."""
+        if self._on_demand_digest is None:
+            from on_demand_digest import OnDemandDigest
+            self._on_demand_digest = OnDemandDigest(
+                gmail_client=self.gmail,
+                todo_manager=self.todo_manager,
+                claude_client=self.claude,
+                db_manager=self.db_manager,
+            )
+            logger.info("OnDemandDigest initialized")
+        return self._on_demand_digest
+
+    @property
+    def daily_digest(self):
+        """Lazy-load DailyDigest (morning email summary)."""
+        if self._daily_digest is None:
+            from daily_digest import DailyDigest
+            self._daily_digest = DailyDigest()
+            logger.info("DailyDigest initialized")
+        return self._daily_digest
 
     # ==================
     # TASK SUPERVISION
