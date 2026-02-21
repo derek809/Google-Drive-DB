@@ -1,0 +1,148 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "OpenClaw → WorkBot Task",
+  "description": "Schema for task files dropped in inbox/ by OpenClaw",
+  "type": "object",
+  "required": ["task_id", "timestamp", "source", "skill", "parameters"],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique task identifier (UUID4)"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO-8601 UTC timestamp of task creation"
+    },
+    "source": {
+      "type": "string",
+      "const": "openclaw",
+      "description": "Always 'openclaw' for tasks from the orchestrator"
+    },
+    "skill": {
+      "type": "string",
+      "enum": [
+        "draft_email_reply",
+        "search_email",
+        "summarize_thread",
+        "forward_email",
+        "extract_contacts",
+        "handle_w9_request",
+        "add_task",
+        "list_tasks",
+        "complete_task",
+        "delete_task",
+        "update_task",
+        "view_task_history",
+        "capture_idea",
+        "brainstorm",
+        "save_to_master_doc",
+        "extract_action_items",
+        "search_skills",
+        "finalize_idea_session",
+        "daily_digest",
+        "on_demand_digest",
+        "system_status",
+        "get_template",
+        "process_invoice_workflow",
+        "idea_to_execution_workflow",
+        "w9_fulfillment_workflow",
+        "fetch_google_drive_file"
+      ],
+      "description": "The Work Bot skill to invoke"
+    },
+    "parameters": {
+      "type": "object",
+      "description": "Skill-specific parameters (see skill_parameters below)"
+    },
+    "context": {
+      "type": "object",
+      "description": "Optional conversation/task context for better results",
+      "properties": {
+        "user_intent_raw": {
+          "type": "string",
+          "description": "The original user request in plain English"
+        },
+        "prior_task_ids": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Related prior task IDs for chaining context"
+        },
+        "job_source": {
+          "type": "string",
+          "enum": ["email", "alert", "scheduled", "manual", "chained"],
+          "description": "What triggered this task"
+        }
+      }
+    },
+    "timeout_seconds": {
+      "type": "integer",
+      "default": 300,
+      "minimum": 10,
+      "maximum": 3600,
+      "description": "Max seconds Work Bot has to respond before OpenClaw times out"
+    },
+    "priority": {
+      "type": "string",
+      "enum": ["low", "normal", "high", "urgent"],
+      "default": "normal"
+    },
+    "retry_attempt": {
+      "type": "integer",
+      "default": 0,
+      "description": "0 = first attempt, 1+ = retry number"
+    }
+  },
+  "definitions": {
+    "skill_parameters": {
+      "draft_email_reply": {
+        "required": ["email_search_query"],
+        "properties": {
+          "email_search_query": { "type": "string", "description": "Gmail search string to find the email" },
+          "reply_tone": { "type": "string", "enum": ["professional", "friendly", "concise"], "default": "professional" },
+          "reply_instructions": { "type": "string", "description": "Optional extra guidance for the reply" },
+          "llm_preference": { "type": "string", "enum": ["ollama", "claude", "auto"], "default": "auto" }
+        }
+      },
+      "search_email": {
+        "required": ["query"],
+        "properties": {
+          "query": { "type": "string" },
+          "max_results": { "type": "integer", "default": 5 },
+          "date_after": { "type": "string", "format": "date" }
+        }
+      },
+      "add_task": {
+        "required": ["title"],
+        "properties": {
+          "title": { "type": "string" },
+          "priority": { "type": "string", "enum": ["low", "medium", "high"] },
+          "deadline": { "type": "string", "format": "date" },
+          "notes": { "type": "string" }
+        }
+      },
+      "complete_task": {
+        "required": ["task_identifier"],
+        "properties": {
+          "task_identifier": { "type": "string", "description": "Task ID or title substring" }
+        }
+      },
+      "capture_idea": {
+        "required": ["idea_text"],
+        "properties": {
+          "idea_text": { "type": "string" },
+          "category": { "type": "string" },
+          "auto_extract_actions": { "type": "boolean", "default": true }
+        }
+      },
+      "fetch_google_drive_file": {
+        "required": ["file_query"],
+        "properties": {
+          "file_query": { "type": "string" },
+          "file_type": { "type": "string", "enum": ["doc", "sheet", "pdf", "any"], "default": "any" }
+        }
+      }
+    }
+  }
+}

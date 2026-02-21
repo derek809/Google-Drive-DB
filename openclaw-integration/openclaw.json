@@ -1,0 +1,90 @@
+{
+  "_comment": "OpenClaw configuration for Work Bot integration. Place this in your OpenClaw root directory.",
+  "agent": {
+    "name": "WorkBotManager",
+    "identity_file": "IDENTITY.md",
+    "user_file": "USER.md"
+  },
+  "llm": {
+    "simple_decisions": {
+      "provider": "ollama",
+      "model": "qwen2.5:3b",
+      "temperature": 0.3,
+      "use_for": ["task_classification", "intent_detection", "routing_decision"]
+    },
+    "complex_reasoning": {
+      "provider": "minimax",
+      "model": "MiniMax-Text-01",
+      "temperature": 0.7,
+      "use_for": ["failure_analysis", "task_decomposition", "user_communication", "escalation_response"]
+    }
+  },
+  "workbot_bridge": {
+    "inbox_dir": "./inbox",
+    "outbox_dir": "./outbox",
+    "task_file_prefix": "task_",
+    "result_file_prefix": "result_",
+    "poll_interval_seconds": 2,
+    "task_timeout_seconds": 300,
+    "result_poll_max_wait_seconds": 360
+  },
+  "failure_policy": {
+    "unknown_skill": {
+      "primary_action": "decompose_with_minimax",
+      "fallback_action": "ask_user",
+      "max_decomposition_depth": 2
+    },
+    "execution_error": {
+      "retryable_errors": [
+        "external_service_unavailable",
+        "rate_limited",
+        "internal_error"
+      ],
+      "non_retryable_errors": [
+        "not_found",
+        "permission_denied",
+        "validation_error"
+      ],
+      "max_retries": 2,
+      "retry_backoff_seconds": [10, 30],
+      "after_max_retries": "attempt_with_minimax_then_ask_user"
+    },
+    "timeout": {
+      "detection_threshold_seconds": 360,
+      "first_action": "send_cancel_signal",
+      "second_action": "attempt_with_minimax",
+      "final_action": "ask_user"
+    },
+    "partial_success": {
+      "if_resumable": "attempt_resume_with_workbot",
+      "if_not_resumable": "attempt_remaining_with_minimax",
+      "always_report_completed_steps": true
+    }
+  },
+  "user_notifications": {
+    "channel": "telegram",
+    "notify_on": ["job_available", "job_complete", "job_failed", "escalation_needed"],
+    "escalation_message_template": "Job '{job_name}' needs your input:\n{reason}\n\nOptions:\n{options}"
+  },
+  "skills": {
+    "available": [
+      "draft_email_reply", "search_email", "summarize_thread", "forward_email",
+      "extract_contacts", "handle_w9_request",
+      "add_task", "list_tasks", "complete_task", "delete_task", "update_task", "view_task_history",
+      "capture_idea", "brainstorm", "save_to_master_doc", "extract_action_items",
+      "search_skills", "finalize_idea_session",
+      "daily_digest", "on_demand_digest", "system_status", "get_template",
+      "process_invoice_workflow", "idea_to_execution_workflow", "w9_fulfillment_workflow",
+      "fetch_google_drive_file"
+    ],
+    "high_risk_skills": ["forward_email", "delete_task"],
+    "require_confirmation": ["forward_email", "delete_task", "handle_w9_request", "w9_fulfillment_workflow"]
+  },
+  "job_monitoring": {
+    "sources": ["gmail", "telegram_alerts"],
+    "gmail_filters": [
+      {"label": "INBOX", "is_unread": true, "max_age_hours": 24}
+    ],
+    "check_interval_minutes": 5
+  }
+}
