@@ -608,8 +608,8 @@ class OpenClawBridge:
             return self._stub_success(task_id, "list_tasks", "Task list (stub mode)")
         try:
             tasks = await asyncio.get_event_loop().run_in_executor(
-                None, self.processor.todo_manager.list_tasks,
-                params.get("filter_priority"), params.get("limit", 20)
+                None, self.processor.todo_manager.get_pending_tasks,
+                params.get("limit", 20)
             )
             return success(
                 task_id,
@@ -648,11 +648,7 @@ class OpenClawBridge:
         if self.processor is None:
             return self._stub_success(task_id, "on_demand_digest", "Digest (stub mode)")
         try:
-            digest = await asyncio.get_event_loop().run_in_executor(
-                None, self.processor.on_demand_digest.generate,
-                params.get("include_emails", True),
-                params.get("include_tasks", True),
-            )
+            digest = await self.processor.on_demand_digest.generate_digest()
             return success(
                 task_id,
                 summary="On-demand digest generated",
@@ -696,15 +692,13 @@ class OpenClawBridge:
         if self.processor is None:
             return self._stub_success(task_id, "capture_idea", "Idea captured (stub mode)")
         try:
-            result_data = await asyncio.get_event_loop().run_in_executor(
-                None, self.processor.skill_manager.capture_idea,
-                params["idea_text"],
-                params.get("category", "general"),
-                params.get("auto_extract_actions", True),
+            idea_text = params["idea_text"]
+            result_data = await self.processor.skill_manager.capture_quick(
+                user_id=0, raw_text=idea_text
             )
             return success(
                 task_id,
-                summary=f"Idea captured: '{params['idea_text'][:60]}...'",
+                summary=f"Idea captured: '{idea_text[:60]}...'",
                 data=result_data,
                 skill_used="capture_idea",
             )
@@ -717,7 +711,7 @@ class OpenClawBridge:
             return self._stub_success(task_id, "daily_digest", "Daily digest (stub mode)")
         try:
             digest = await asyncio.get_event_loop().run_in_executor(
-                None, self.processor.daily_digest.generate
+                None, self.processor.daily_digest.get_morning_summary
             )
             return success(task_id, summary="Daily digest generated",
                            data={"digest": digest}, skill_used="daily_digest")
