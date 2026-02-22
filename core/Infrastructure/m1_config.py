@@ -157,7 +157,7 @@ GEMINI_MAX_IMAGE_SIZE = 20 * 1024 * 1024
 # ============================================
 
 NVIDIA_API_KEY = os.getenv('NVIDIA_API_KEY', '')
-KIMI_MODEL = "moonshotai/kimi-k2.5"
+KIMI_MODEL = "moonshotai/kimi-k2-instruct"
 KIMI_BASE_URL = "https://integrate.api.nvidia.com/v1"
 KIMI_TEMPERATURE = 1.00
 KIMI_TOP_P = 1.00

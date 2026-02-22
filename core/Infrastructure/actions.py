@@ -23,7 +23,7 @@ from typing import Dict, List, Optional
 logger = logging.getLogger(__name__)
 
 try:
-    from pydantic import BaseModel, Field
+    from pydantic import BaseModel, Field, ConfigDict
 except ImportError:
     # Fallback for environments without pydantic
     from dataclasses import dataclass, field as _field
@@ -54,7 +54,9 @@ class RiskLevel(Enum):
 
 class ActionSchema(BaseModel):
     """Formal contract for an executable action."""
-
+    
+    model_config = ConfigDict(extra="allow")
+    
     intent: str  # Maps to Intent enum value
     required_params: List[str]
     optional_params: List[str] = Field(default_factory=list)

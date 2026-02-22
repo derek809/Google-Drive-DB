@@ -763,3 +763,14 @@ todo_manager.TodoManagerError: Failed to add task: Bad request - check your rang
 2026-02-10 08:34:22,230 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
 2026-02-10 08:34:27,295 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
 2026-02-10 09:10:22,315 - telegram_handler - ERROR - Update None caused error httpx.ConnectError: [Errno 8] nodename nor servname provided, or not known
+2026-02-22 02:32:44,435 - ollama_client - INFO - Loaded Personality.json from /Users/work/Telgram bot/playbook
+2026-02-22 02:32:44,439 - pattern_matcher - INFO - Loaded templates.json from /Users/work/Telgram bot/playbook
+2026-02-22 02:32:44,465 - claude_client - INFO - Loaded Personality.json from /Users/work/Telgram bot/playbook
+2026-02-22 02:32:44,901 - smart_parser - WARNING - Ollama not available - SmartParser will use regex-only mode
+2026-02-22 02:33:24,826 - ollama_client - INFO - Loaded Personality.json from /Users/work/Telgram bot/playbook
+2026-02-22 02:33:24,827 - pattern_matcher - INFO - Loaded templates.json from /Users/work/Telgram bot/playbook
+2026-02-22 02:33:25,062 - claude_client - INFO - Loaded Personality.json from /Users/work/Telgram bot/playbook
+2026-02-22 02:33:25,435 - smart_parser - WARNING - Ollama not available - SmartParser will use regex-only mode
+2026-02-22 02:33:25,441 - __main__ - INFO - Initializing Mode 4 Processor...
+2026-02-22 02:33:25,441 - __main__ - INFO - Starting Mode 4 Processor...
+2026-02-22 02:33:25,442 - __main__ - ERROR - Configuration error: ANTHROPIC_API_KEY not set - Claude API unavailable (non-critical)
