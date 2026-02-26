@@ -1,5 +1,131 @@
 {
   "workflows": {
+    "todo_email_workflow": {
+      "description": "Handle email tasks from Microsoft SharePoint: show todos, select, draft reply with voice",
+      "source": "Microsoft SharePoint Action Items List",
+      "voice": "Derek's professional corporate style from Personality.json",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "todo_list",
+          "params": { "source": "sharepoint" },
+          "output_to_context": "todos",
+          "description": "show my todos - Fetch from Microsoft List"
+        },
+        {
+          "step_id": 2,
+          "action": "todo_select",
+          "params": { "context_ref": "todos" },
+          "description": "User sees numbered list with Email/Manual tags"
+        },
+        {
+          "step_id": 3,
+          "action": "todo_draft_reply",
+          "params": { "voice_style": "reply_style" },
+          "output_to_context": "drafted_email",
+          "description": "#1 draft a reply [gist] - Find email by subject, draft in Derek's voice"
+        }
+      ],
+      "voice_styles": {
+        "reply_style": {
+          "greeting": "Hi [First Name],",
+          "body": "Acknowledge message, state response clearly",
+          "closing": "Let me know if you need anything else! or Have a great day!"
+        }
+      }
+    },
+    "invoice_processing_workflow": {
+      "description": "DEPRECATED - Use OpenClaw skill: invoice-workflow",
+      "status": "retired",
+      "voice": "Derek's professional corporate style from Personality.json",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "invoice_search",
+          "params": { "query": "invoice OR payment OR fees", "label": "MCP", "max_results": 5 },
+          "output_to_context": "invoices",
+          "description": "Search MCP for invoice-related emails"
+        },
+        {
+          "step_id": 2,
+          "action": "invoice_select",
+          "params": { "context_ref": "invoices" },
+          "description": "User selects #1, #2, etc."
+        },
+        {
+          "step_id": 3,
+          "action": "invoice_extract",
+          "params": { "use_gemini": true },
+          "output_to_context": "extracted_data",
+          "description": "#1 process - Extract vendor, amount, due date using Gemini"
+        },
+        {
+          "step_id": 4,
+          "action": "invoice_draft",
+          "params": { "voice_style": "email_style" },
+          "description": "#1 draft - Create payment confirmation reply with Derek's voice"
+        }
+      ]
+    },
+    "mcp_email_workflow": {
+      "description": "DEPRECATED - Use OpenClaw skill: mcp-email",
+      "status": "retired",
+      "voice": "Derek's professional corporate style from Personality.json",
+      "steps": [
+        {
+          "step_id": 1,
+          "action": "email_search",
+          "params": { "label": "MCP", "max_results": 10 },
+          "output_to_context": "emails",
+          "description": "Fetch emails from MCP label"
+        },
+        {
+          "step_id": 2,
+          "action": "email_select",
+          "params": { "context_ref": "emails" },
+          "description": "User selects #1, #2, etc. to view thread"
+        },
+        {
+          "step_id": 3,
+          "action": "email_thread_view",
+          "params": { "thread_id": "{thread_id}" },
+          "output_to_context": "latest_message",
+          "description": "Show latest message in thread"
+        },
+        {
+          "step_id": "3a",
+          "action": "email_reply_voice",
+          "params": { "voice_style": "reply_style" },
+          "description": "#1 reply - ask gist, draft with Derek's voice"
+        },
+        {
+          "step_id": "3b",
+          "action": "email_relay",
+          "params": { "voice_style": "loop_relay_style" },
+          "description": "#1 relay - rewrite responder's message in Derek's voice"
+        },
+        {
+          "step_id": "3c",
+          "action": "email_archive",
+          "params": { "from_label": "MCP", "to_label": "MCP-Done" },
+          "description": "#1 done or #1 archive - move email to MCP-Done"
+        }
+      ],
+      "voice_styles": {
+        "reply_style": {
+          "greeting": "Hi [First Name],",
+          "body": "Acknowledge message, state response clearly",
+          "closing": "Let me know if you need anything else! or Have a great day!",
+          "example": "Hi Sarah, thanks for sending over the documents. I've reviewed them and everything looks good on our end. Let me know if you need anything else!"
+        },
+        "loop_relay_style": {
+          "greeting": "Hi [First Name],", 
+          "body": "Reference topic + name person who gave update + state their update",
+          "closing": "Please let me know if you have any other further questions. Have a great day!",
+          "example": "Hi Debbie, I wanted to follow up on our conversation regarding payment issues. Eytan mentioned that we will resend the wire minus the fee. Please let me know if you have any other further questions. Have a great day!"
+        }
+      }
+    },
     "invoice_processing_pipeline": {
       "description": "Finds an invoice, extracts data via Gemini, and drafts a confirmation email.",
       "steps": [

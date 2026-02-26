@@ -39,6 +39,8 @@ class Intent(Enum):
     EMAIL_SEARCH = "email_search"      # "find emails from john"
     EMAIL_FORWARD = "email_forward"    # "forward invoice to accounting"
     EMAIL_SYNTHESIZE = "synthesize"    # "summarize the thread"
+    INVOICE_PROCESS = "invoice_process"  # "process invoice", "find invoice"
+    DEAL_INVOICE = "deal_invoice"       # "Process: Company", "Process [Company] from Michael"
 
     # Task Management
     TODO_ADD = "todo_add"              # "add call sarah to todo"
@@ -296,6 +298,14 @@ class ConversationManager:
             logger.info(f"Message handled by active workflow: {workflow_result.get('action')}")
             return workflow_result
 
+        # Check for pending todo draft (user is giving gist after we asked)
+        pending_todo = self._context_store.get(user_id, {}).get('pending_todo_draft')
+        if pending_todo and text.strip() and not text.startswith('#'):
+            # User gave the gist - draft the email
+            logger.info(f"Handling pending todo draft with gist: {text[:50]}")
+            task_ref = pending_todo.get('task_ref', {})
+            return await self._handle_todo_email_draft(task_ref, text, chat_id, user_id)
+
         # Check for multi-step workflow chain (e.g., "draft reply to Jason and send it")
         workflow_steps = self._detect_workflow_chain(text)
         if workflow_steps:
@@ -486,6 +496,19 @@ class ConversationManager:
 
         if 'find email' in text_lower or 'search email' in text_lower or 'from ' in text_lower[:20]:
             return Intent.EMAIL_SEARCH
+
+        # Invoice processing
+        if any(phrase in text_lower for phrase in ['process invoice', 'find invoice', 'invoice processing', 'handle invoice', 'invoice email']):
+            return Intent.INVOICE_PROCESS
+
+        # Deal invoice processing - Old City Capital invoices
+        # Patterns: "/invoice Barsys", "do this invoice Barsys", "invoice Barsys", "Process: Barsys"
+        if text_lower.startswith('/invoice ') or text_lower.startswith('invoice '):
+            return Intent.DEAL_INVOICE
+        if 'do this invoice' in text_lower:
+            return Intent.DEAL_INVOICE
+        if text_lower.startswith('process:'):
+            return Intent.DEAL_INVOICE
 
         # Info requests
         if 'morning brief' in text_lower or 'digest' in text_lower or 'email summary' in text_lower:
@@ -698,6 +721,15 @@ Return ONLY the intent word (nothing else):"""
         elif intent == Intent.EMAIL_INBOX:
             await self.telegram.send_typing(chat_id)
             return await self._handle_mcp_inbox(chat_id, user_id)
+
+        elif intent == Intent.INVOICE_PROCESS:
+            await self.telegram.send_typing(chat_id)
+            return await self._handle_invoice_processing(text, user_id, chat_id)
+
+        # Deal invoice processing (Michael Riskind / Highwood Estate Capital)
+        elif intent == Intent.DEAL_INVOICE:
+            await self.telegram.send_typing(chat_id)
+            return await self._handle_deal_invoice(text, user_id, chat_id)
 
         # Brainstorm
         elif intent == Intent.BRAINSTORM_ADD:
@@ -940,8 +972,261 @@ Just ask naturally and I'll figure out what you need!"""
 
         return cleaned_tasks
 
+    async def _fetch_mcp_emails(self) -> list:
+        """Fetch emails from MCP label for todo list (email-type tasks)."""
+        try:
+            import sys
+            import os
+            # Add LLM directory to path for gmail_client
+            bot_root = os.path.dirname(os.path.dirname(__file__))
+            llm_path = os.path.join(bot_root, 'LLM')
+            if llm_path not in sys.path:
+                sys.path.insert(0, llm_path)
+            
+            from gmail_client import GmailClient
+
+            gmail = GmailClient()
+            gmail.authenticate()
+
+            # Get MCP emails
+            emails = gmail.search_by_label('MCP', max_results=10, days_back=30)
+
+            mcp_tasks = []
+            for email in emails:
+                subject = email.get('subject', 'No subject')
+                sender = email.get('sender_name') or email.get('sender_email', 'Unknown')
+                snippet = email.get('snippet', '')
+                
+                mcp_tasks.append({
+                    'id': email.get('message_id'),
+                    'email_id': email.get('message_id'),
+                    'thread_id': email.get('thread_id'),
+                    'title': subject,
+                    'type': 'Email',
+                    'source': 'mcp',
+                    'sender': sender,
+                    'snippet': snippet[:100],
+                    'subject': subject,
+                    'origin': 'mcp'
+                })
+
+            return mcp_tasks
+
+        except Exception as e:
+            logger.error(f"Error fetching MCP emails: {e}")
+            return []
+
+    async def _sync_mcp_to_sharepoint(self) -> Dict[str, Any]:
+        """
+        Sync MCP-labeled emails to SharePoint Action Items list.
+        Only adds new emails not already in SharePoint.
+        """
+        import msal
+        import requests
+        import json
+        import os
+
+        try:
+            # Load credentials
+            bot_root = os.path.dirname(os.path.dirname(__file__))
+            creds_path = os.path.join(bot_root, 'credentials', 'microsoft_login.json')
+            with open(creds_path) as f:
+                creds = json.load(f)
+
+            azure_ad = creds['azure_ad_application']
+            sp = creds.get('sharepoint', {})
+            
+            if not sp:
+                return {'added': 0, 'skipped': 0, 'error': 'No SharePoint config'}
+
+            # Get MCP emails
+            mcp_emails = await self._fetch_mcp_emails()
+            
+            if not mcp_emails:
+                return {'added': 0, 'skipped': 0, 'message': 'No MCP emails'}
+
+            # Get existing SharePoint tasks
+            existing_tasks = await self._fetch_sharepoint_todos()
+            existing_subjects = {t.get('subject', '').lower() for t in existing_tasks}
+            existing_ids = {t.get('email_id', '') for t in existing_tasks if t.get('email_id')}
+
+            # Auth with Graph API
+            app = msal.ConfidentialClientApplication(
+                client_id=azure_ad['client_id'],
+                client_credential=azure_ad['client_secret'],
+                authority=f'https://login.microsoftonline.com/{azure_ad["tenant_id"]}'
+            )
+            result = app.acquire_token_for_client(scopes=['https://graph.microsoft.com/.default'])
+
+            if 'access_token' not in result:
+                return {'added': 0, 'skipped': 0, 'error': 'Auth failed'}
+
+            access_token = result['access_token']
+            headers = {'Authorization': f'Bearer {access_token}', 'Content-Type': 'application/json'}
+            
+            site_id = sp.get('site_id', '')
+            list_id = '09855d8f-7db9-4fe1-9f3d-5309a8d00455'
+            url = f'https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items'
+
+            added = 0
+            skipped = 0
+
+            for email in mcp_emails:
+                email_id = email.get('email_id', '')
+                subject = email.get('subject', '')
+                sender = email.get('sender', 'Unknown')
+                snippet = email.get('snippet', '')[:150]  # First 150 chars
+                
+                # Skip if already in SharePoint (by email_id or subject)
+                if email_id in existing_ids or subject.lower() in existing_subjects:
+                    skipped += 1
+                    continue
+                
+                # Create new task in SharePoint - store actual snippet
+                fields = {
+                    "Title": "Email",
+                    "field_1": subject,
+                    "field_3": snippet,  # Actual email snippet
+                    "field_5": email_id,  # Store email_id for reliable lookup
+                    "field_6": "Not Started"
+                }
+                
+                payload = {"fields": fields}
+                
+                resp = requests.post(url, headers=headers, json=payload, timeout=15)
+                
+                if resp.status_code in (200, 201):
+                    added += 1
+                    logger.info(f"Added to SharePoint: {subject[:30]}")
+                else:
+                    logger.warning(f"Failed to add {subject[:20]}: {resp.status_code}")
+
+            return {'added': added, 'skipped': skipped, 'total_mcp': len(mcp_emails)}
+
+        except Exception as e:
+            logger.error(f"Sync error: {e}")
+            return {'added': 0, 'skipped': 0, 'error': str(e)}
+
+    async def _fetch_sharepoint_todos(self) -> list:
+        """Fetch todos from Microsoft SharePoint Action Items list + MCP emails."""
+        try:
+            import msal
+            import requests
+            import json
+            import os
+
+            # Load credentials - go up 2 levels from brain/ to bot root
+            bot_root = os.path.dirname(os.path.dirname(__file__))
+            creds_path = os.path.join(bot_root, 'credentials', 'microsoft_login.json')
+            with open(creds_path) as f:
+                creds = json.load(f)
+
+            azure_ad = creds['azure_ad_application']
+            sp = creds.get('sharepoint', {})
+            
+            if not sp:
+                return []
+
+            site_id = sp.get('site_id', '')
+            list_id = '09855d8f-7db9-4fe1-9f3d-5309a8d00455'  # Action Items list
+            
+            client_id = azure_ad['client_id']
+            tenant_id = azure_ad['tenant_id']
+            client_secret = azure_ad['client_secret']
+
+            # Get token
+            app = msal.ConfidentialClientApplication(
+                client_id=client_id,
+                client_credential=client_secret,
+                authority=f'https://login.microsoftonline.com/{tenant_id}'
+            )
+            result = app.acquire_token_for_client(scopes=['https://graph.microsoft.com/.default'])
+
+            if 'access_token' not in result:
+                logger.warning("Could not get SharePoint token")
+                return []
+
+            access_token = result['access_token']
+            headers = {'Authorization': f'Bearer {access_token}'}
+            
+            url = f'https://graph.microsoft.com/v1.0/sites/{site_id}/lists/{list_id}/items?expand=fields'
+            
+            resp = requests.get(url, headers=headers, timeout=15)
+            if resp.status_code != 200:
+                logger.warning(f"SharePoint query failed: {resp.status_code}")
+                return []
+
+            data = resp.json()
+            items = data.get('value', [])
+            
+            todos = []
+            for item in items:
+                fields = item.get('fields', {})
+                item_type = fields.get('Title', 'Unknown')  # "Email" or "Manual"
+                subject = fields.get('field_1', '')  # Subject line
+                task_desc = fields.get('field_3', '')  # Description field
+                status = fields.get('field_6', 'Pending')  # Status field
+                
+                todos.append({
+                    'id': item.get('id'),
+                    'title': task_desc or subject,  # Use description, fallback to subject
+                    'type': item_type,
+                    'subject': subject,
+                    'description': task_desc,
+                    'status': status,
+                    'origin': 'sharepoint'
+                })
+            
+            # Also fetch MCP emails and add as Email-type tasks
+            mcp_todos = await self._fetch_mcp_emails()
+            for mcp in mcp_todos:
+                todos.append(mcp)
+            
+            return todos
+
+        except Exception as e:
+            logger.error(f"Error fetching SharePoint todos: {e}")
+            return []
+
+    def _mark_todo_complete(self, sharepoint_id: str) -> bool:
+        """Mark a SharePoint task as complete (locally tracked)."""
+        try:
+            import sys
+            import os
+            bot_root = os.path.dirname(os.path.dirname(__file__))
+            sys.path.insert(0, os.path.join(bot_root, 'core', 'Infrastructure'))
+            from db_manager import DatabaseManager
+            db = DatabaseManager()
+            
+            db.execute(
+                "INSERT OR IGNORE INTO completed_sharepoint_tasks (sharepoint_id) VALUES (?)",
+                (sharepoint_id,)
+            )
+            return True
+        except Exception as e:
+            logger.error(f"Error marking task complete: {e}")
+            return False
+
+    def _is_todo_complete(self, sharepoint_id: str) -> bool:
+        """Check if a SharePoint task is marked complete."""
+        try:
+            import sys
+            import os
+            bot_root = os.path.dirname(os.path.dirname(__file__))
+            sys.path.insert(0, os.path.join(bot_root, 'core', 'Infrastructure'))
+            from db_manager import DatabaseManager
+            db = DatabaseManager()
+            
+            result = db.execute(
+                "SELECT 1 FROM completed_sharepoint_tasks WHERE sharepoint_id = ?",
+                (sharepoint_id,)
+            )
+            return len(result) > 0
+        except Exception as e:
+            return False
+
     async def _handle_todo_list(self, chat_id: int, user_id: int) -> Dict[str, Any]:
-        """Handle showing todo list from Google Sheets Todo List tab + SQLite tasks."""
+        """Handle showing todo list from Microsoft SharePoint + legacy sources."""
         try:
             import sys
             import html
@@ -953,6 +1238,56 @@ Just ask naturally and I'll figure out what you need!"""
             all_pending = []
             task_references = []
             idx = 0
+
+            # AUTO-SYNC: Pull MCP emails into SharePoint if not already there
+            sync_result = await self._sync_mcp_to_sharepoint()
+            if sync_result.get('added', 0) > 0:
+                logger.info(f"Auto-synced {sync_result['added']} MCP emails to SharePoint")
+
+            # Source 0: Microsoft SharePoint Action Items (PRIMARY)
+            sp_todos = await self._fetch_sharepoint_todos()
+            for todo in sp_todos:
+                if todo.get('status', '').lower() != 'done':
+                    idx += 1
+                    
+                    # Build task item with all needed fields
+                    task_item = {
+                        'number': idx,
+                        'title': todo.get('description', '') or todo.get('subject', ''),
+                        'description': todo.get('description', ''),  # Email snippet
+                        'type': todo.get('type', ''),
+                        'subject': todo.get('subject', ''),
+                        'origin': todo.get('origin', 'sharepoint'),
+                    }
+                    
+                    # Add source-specific fields
+                    if todo.get('origin') == 'mcp':
+                        task_item['email_id'] = todo.get('email_id')
+                        task_item['thread_id'] = todo.get('thread_id')
+                        task_item['sender'] = todo.get('sender')
+                    else:
+                        task_item['sharepoint_id'] = todo.get('id')
+                    
+                    # Skip if already completed locally
+                    sp_id = todo.get('id', '')
+                    if sp_id and self._is_todo_complete(sp_id):
+                        continue  # Skip completed tasks
+                    
+                    all_pending.append(task_item)
+                    
+                    # Also add to task_references
+                    ref_item = {
+                        'number': idx,
+                        'title': todo.get('description', '') or todo.get('subject', ''),
+                        'type': todo.get('type', ''),
+                        'origin': todo.get('origin', 'sharepoint'),
+                    }
+                    if todo.get('origin') == 'mcp':
+                        ref_item['email_id'] = todo.get('email_id')
+                        ref_item['thread_id'] = todo.get('thread_id')
+                    else:
+                        ref_item['sharepoint_id'] = todo.get('id')
+                    task_references.append(ref_item)
 
             # Source 1: Google Sheets "Todo List" tab
             # Columns: Source | Subject/Task | Context | Status | Created | Due Date
@@ -1060,34 +1395,32 @@ Just ask naturally and I'll figure out what you need!"""
 
             for item in all_pending[:15]:
                 title = html.escape(item['title'][:45])
-                origin_tag = ''
-                if item['origin'] == 'mcp':
-                    origin_tag = ' [MCP]'
-                elif item['origin'] == 'sqlite':
-                    origin_tag = ' [Local]'
+                
+                # Emoji based on type
+                if item.get('email_id'):
+                    emoji = '📧'
+                else:
+                    emoji = '📝'
 
-                response += f"<b>{item['number']}.</b> {title}{origin_tag}\n"
+                response += f"{emoji} <b>{item['number']}.</b> {title}\n"
 
-                # Add context info
-                if item.get('prompt'):
-                    response += f"    {html.escape(item['prompt'][:55])}...\n"
-                elif item.get('context'):
-                    response += f"    Context: {html.escape(item['context'][:40])}\n"
-                elif item.get('notes'):
-                    response += f"    {html.escape(item['notes'][:55])}\n"
+                # For email tasks: show sender + snippet (if available)
+                if item.get('email_id'):
+                    if item.get('sender'):
+                        response += f"    From: {html.escape(item.get('sender', ''))}\n"
+                    # Show snippet if we have it (from SharePoint field_3)
+                    snippet = item.get('description', '')
+                    if snippet and len(snippet) > 10:
+                        response += f"    {html.escape(snippet[:100])}...\n"
+                else:
+                    # Manual task - show prompt/context if exists
+                    if item.get('prompt'):
+                        response += f"    {html.escape(item['prompt'][:55])}...\n"
+                    elif item.get('context'):
+                        response += f"    Context: {html.escape(item['context'][:40])}\n"
 
-                if item.get('due_date'):
-                    response += f"    Due: {item['due_date']}\n"
-
-                # Suggestion
-                suggestion = self._generate_task_suggestion({
-                    'title': item.get('prompt') or item['title'],
-                    'priority': item.get('priority', 'medium')
-                })
-                response += f"    <i>{suggestion}</i>\n\n"
-
-            response += f"\n<i>Showing {min(len(all_pending), 15)} of {len(all_pending)} pending tasks</i>"
-            response += "\n<i>Say '#1 do it', '#2 skip', or 'act on #3'</i>"
+            response += f"\n<i>Showing {min(len(all_pending), 15)} of {len(all_pending)} tasks</i>"
+            response += "\n<i>Say '#1' to view, '#1 draft [gist]' to reply</i>"
 
             # Store references for #N syntax
             self.store_reference(user_id, 'tasks', all_pending)
@@ -1245,6 +1578,14 @@ Just ask naturally and I'll figure out what you need!"""
                         )
                         conn.commit()
 
+            elif origin == 'sharepoint':
+                # Mark SharePoint task as complete (local tracking)
+                sp_id = task_ref.get('sharepoint_id')
+                if sp_id:
+                    success = self._mark_todo_complete(sp_id)
+                    if success:
+                        logger.info(f"Marked SharePoint task complete: {sp_id}")
+
             elif origin == 'todos_active':
                 # Complete from the new Sheets-based todo storage
                 from todo_manager import TodoManager
@@ -1384,6 +1725,25 @@ Just ask naturally and I'll figure out what you need!"""
             )
             return {'handled': True, 'routed_to': 'task_reference', 'error': 'not_found'}
 
+        # === SHAREPOINT EMAIL TASK HANDLER ===
+        # Check if this is a SharePoint task with Email type
+        if task_ref.get('origin') == 'sharepoint' and task_ref.get('type') == 'Email':
+            # User wants to interact with this email task
+            subject = task_ref.get('subject', '')
+            task_title = task_ref.get('title', '')  # This is the description
+            
+            # Check what action user wants
+            gist_match = _re_local.search(r'(?:draft(?: an?)?(?: email)?(?: a reply)?|reply)\s+(.+?)(?:\s+#\d+)?$', text, _re_local.IGNORECASE)
+            reply_gist = gist_match.group(1).strip() if gist_match else ""
+            
+            if reply_gist:
+                # User gave gist - draft directly
+                return await self._handle_todo_email_draft(task_ref, reply_gist, chat_id, user_id)
+            
+            # No gist - show the actual email thread first (intuitive: #1 shows email)
+            # This is the "view" action - just #1 or #1 view
+            return await self._handle_todo_show_email(task_ref, chat_id, user_id)
+
         # Check if this is an MCP sheet task with email_id (from Google Sheets)
         if task_ref.get('email_id'):
             # This is an MCP sheet task - use the prompt as instruction
@@ -1459,6 +1819,209 @@ Just ask naturally and I'll figure out what you need!"""
 
     async def _execute_email_reference(self, ref_num: int, text: str, context: Dict, chat_id: int, user_id: int) -> Dict[str, Any]:
         """Execute action on a referenced email (#1 reply, #2 archive, etc.)."""
+        
+        # Check for pending relay confirmation
+        pending_relay = self._context_store.get(user_id, {}).get('pending_relay')
+        if pending_relay and any(word in text.lower() for word in ['yes', 'yeah', 'yep', 'confirm', 'do it', 'go ahead', 'sure', 'ok']):
+            # User confirmed the relay - draft the email
+            try:
+                import html
+                from gmail_client import GmailClient
+                gmail = GmailClient()
+                gmail.authenticate()
+                
+                to_addr = pending_relay.get('to')  # Full name or email
+                to_email = pending_relay.get('to_email', to_addr)  # Email address
+                first_name = pending_relay.get('first_name', 'there')  # First name for greeting
+                resp_from = pending_relay.get('response_from', 'Unknown')
+                resp_body = pending_relay.get('response_body', '')
+                thread_id = pending_relay.get('thread_id')
+                
+                # Extract just the name from "Name <email>" format for responder
+                if '<' in resp_from:
+                    responder_name = resp_from.split('<')[0].strip()
+                else:
+                    responder_name = resp_from.split('@')[0].replace('.', ' ').title()
+                
+                # Load personality from Personality.json
+                import json
+                import os
+                personality_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'playbook', 'Personality.json')
+                try:
+                    with open(personality_path) as f:
+                        personality = json.load(f)
+                    loop_relay = personality.get('loop_relay_style', {})
+                    example = loop_relay.get('example', '')
+                    rules = loop_relay.get('rules', [])
+                    template = loop_relay.get('template', '')
+                except Exception as e:
+                    logger.warning(f"Could not load personality: {e}")
+                    example = ""
+                    rules = []
+                
+                # Use LLM to rewrite in user's professional voice using their personality
+                rewrite_prompt = f"""Write a short professional email from Derek (at Old City Securities) relaying information to a client.
+
+Derek's style when relaying someone's response:
+- {rules[0] if len(rules) > 0 else 'Start with Hi [Name],'}
+- {rules[1] if len(rules) > 1 else 'Reference the topic briefly'}
+- {rules[2] if len(rules) > 2 else 'Name the person who provided the update'}
+- {rules[3] if len(rules) > 3 else 'State their update concisely'}
+- {rules[4] if len(rules) > 4 else 'End with Please let me know if you have any other further questions. Have a great day!'}
+
+Example of Derek's relay style:
+{example}
+
+Context: Derek looped in {responder_name} on a thread with the client. {responder_name} gave an update that Derek now needs to relay to {first_name}.
+
+{responder_name}'s response:
+{resp_body}
+
+Write the email from Derek's perspective to {first_name}. Use his exact style:"""
+                
+                try:
+                    from LLM.ollama_client import OllamaClient
+                    ollama = OllamaClient()
+                    rewritten = ollama.generate(rewrite_prompt, max_tokens=300)
+                    # Clean up the LLM response
+                    rewritten = rewritten.strip()
+                    if not rewritten.startswith("Hi"):
+                        rewritten = f"Hi {first_name},\n\n" + rewritten
+                except Exception as e:
+                    logger.warning(f"LLM rewrite failed, using fallback: {e}")
+                    # Fallback to better template
+                    rewritten = f"Hi {first_name},\n\nI discussed this with {responder_name} and they informed me that the wire will be resent minus the fees incurred.\n\nMake sense? Any questions?\n\nBest,\nDerek"
+                
+                # Create draft with rewritten body
+                result = gmail.create_draft(
+                    to=to_addr,
+                    subject=f"Re: {pending_relay.get('subject', 'Your inquiry')}",
+                    body=rewritten,
+                    thread_id=thread_id
+                )
+                
+                if result.get('success'):
+                    await self.telegram.send_response(
+                        chat_id,
+                        f"✅ <b>Draft created!</b>\n\nTo: {html.escape(to_addr)}\nSubject: Re: {html.escape(pending_relay.get('subject', ''))}\n\n"
+                        f"<i>Review and send when ready.</i>"
+                    )
+                else:
+                    await self.telegram.send_response(chat_id, f"Draft failed: {result.get('error')}")
+                
+                # Clear pending relay
+                self._context_store[user_id].pop('pending_relay', None)
+                return {'handled': True, 'routed_to': 'email_reference', 'action': 'relay_drafted'}
+                
+            except Exception as e:
+                logger.error(f"Relay draft error: {e}")
+                await self.telegram.send_response(chat_id, f"Relay failed: {str(e)}")
+                return {'handled': True, 'routed_to': 'email_reference', 'error': str(e)}
+        
+        # Check for pending reply (user gave gist after #1 reply)
+        pending_reply = self._context_store.get(user_id, {}).get('pending_reply')
+        if pending_reply:
+            # User gave gist for reply - create draft with their voice
+            try:
+                import html
+                import json
+                import os
+                from gmail_client import GmailClient
+                from LLM.ollama_client import OllamaClient
+                
+                gmail = GmailClient()
+                gmail.authenticate()
+                
+                reply_gist = text
+                thread_id = pending_reply.get('thread_id')
+                subject = pending_reply.get('subject', 'Your inquiry')
+                email_ref = pending_reply.get('email_ref', {})
+                
+                # Get sender info for greeting
+                sender = email_ref.get('sender', 'there')
+                if '@' in sender:
+                    first_name = sender.split('@')[0].replace('.', ' ').title().split()[0]
+                else:
+                    first_name = sender.split()[0] if sender else 'there'
+                
+                # Load personality
+                personality_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'playbook', 'Personality.json')
+                try:
+                    with open(personality_path) as f:
+                        personality = json.load(f)
+                    reply_style = personality.get('reply_style', {})
+                    rules = reply_style.get('rules', [])
+                except:
+                    rules = []
+                
+                # Use LLM to draft with voice
+                rewrite_prompt = f"""Write a short professional email reply from Derek (at Old City Securities).
+
+Derek's style:
+- {rules[0] if len(rules) > 0 else 'Start with Hi [Name],'}
+- {rules[1] if len(rules) > 1 else 'Be concise and direct'}
+- {rules[2] if len(rules) > 2 else 'Acknowledge their message'}
+- {rules[3] if len(rules) > 3 else 'State your response clearly'}
+- {rules[4] if len(rules) > 4 else 'End with Let me know if you need anything else!'}
+
+Original email subject: {subject}
+Derek's reply gist: {reply_gist}
+
+Write the reply from Derek's perspective to {first_name}:"""
+                
+                try:
+                    ollama = OllamaClient()
+                    rewritten = ollama.generate(rewrite_prompt, max_tokens=300)
+                    rewritten = rewritten.strip()
+                    if not rewritten.startswith("Hi"):
+                        rewritten = f"Hi {first_name},\n\n" + rewritten
+                except Exception as e:
+                    logger.warning(f"LLM reply failed: {e}")
+                    rewritten = f"Hi {first_name},\n\n{reply_gist}\n\nLet me know if you need anything else!\n\nBest,\nDerek"
+                
+                # Get thread to find recipient
+                thread = gmail.service.users().threads().get(userId='me', id=thread_id).execute()
+                messages = thread.get('messages', [])
+                
+                # Find the sender (most recent message not from Derek)
+                user_email = 'derek@oldcitycapital.com'
+                to_email = None
+                for msg in reversed(messages):
+                    headers = {h['name']: h['value'] for h in msg['payload']['headers']}
+                    from_addr = headers.get('From', '')
+                    if user_email.lower() not in from_addr.lower():
+                        if '<' in from_addr:
+                            to_email = from_addr.split('<')[1].rstrip('>')
+                        else:
+                            to_email = from_addr
+                        break
+                
+                # Create draft
+                result = gmail.create_draft(
+                    to=to_email,
+                    subject=f"Re: {subject}",
+                    body=rewritten,
+                    thread_id=thread_id
+                )
+                
+                if result.get('success'):
+                    await self.telegram.send_response(
+                        chat_id,
+                        f"✅ <b>Draft created!</b>\n\nTo: {html.escape(to_email)}\nSubject: Re: {subject}\n\n"
+                        f"<i>Review and send when ready.</i>"
+                    )
+                else:
+                    await self.telegram.send_response(chat_id, f"Draft failed: {result.get('error')}")
+                
+                self._context_store[user_id].pop('pending_reply', None)
+                return {'handled': True, 'routed_to': 'email_reference', 'action': 'reply_drafted'}
+                
+            except Exception as e:
+                logger.error(f"Reply draft error: {e}")
+                await self.telegram.send_response(chat_id, f"Reply failed: {str(e)}")
+                self._context_store[user_id].pop('pending_reply', None)
+                return {'handled': True, 'routed_to': 'email_reference', 'error': str(e)}
+        
         emails = context.get('emails', [])
 
         # Find the email
@@ -1474,26 +2037,66 @@ Just ask naturally and I'll figure out what you need!"""
         text_lower = text.lower()
         subject = email_ref.get('subject', 'Unknown')
         email_id = email_ref.get('email_id')
+        thread_id = email_ref.get('thread_id')
 
         # Determine action from text
         if any(word in text_lower for word in ['reply', 'respond', 'answer', 'draft']):
-            # Route to email draft flow
+            # Check if user wants a quick reply with voice - ask for the gist
             await self.telegram.send_response(
                 chat_id,
-                f"Drafting reply to: {subject}\n\nSearching for the email..."
+                f"<b>Reply to:</b> {subject}\n\nWhat's the gist of your reply? (I'll draft it in your voice)"
             )
-            return {
-                'handled': False,
-                'routed_to': 'email_processor',
-                'reason': 'email_reference_reply',
+            # Store pending reply context
+            if user_id not in self._context_store:
+                self._context_store[user_id] = {}
+            self._context_store[user_id]['pending_reply'] = {
                 'email_id': email_id,
-                'action': 'reply'
+                'thread_id': thread_id,
+                'subject': subject,
+                'email_ref': email_ref
             }
+            return {'handled': True, 'routed_to': 'email_reference', 'awaiting': 'reply_gist'}
+
+        # Invoice processing actions
+        elif any(word in text_lower for word in ['process', 'extract', 'parse']):
+            # Extract invoice data using Gemini
+            return await self._handle_invoice_extract(ref_num, email_ref, chat_id, user_id)
+
+        elif any(word in text_lower for word in ['invoice draft', 'invoice reply']):
+            # Create invoice response draft
+            return await self._handle_invoice_draft(ref_num, email_ref, text, chat_id, user_id)
 
         elif any(word in text_lower for word in ['archive', 'done', 'complete']):
-            # Note: Archive not fully implemented yet - just acknowledge
-            await self.telegram.send_response(chat_id, f"Marked as done: {subject}\n<i>(Full archive coming soon)</i>")
-            return {'handled': True, 'routed_to': 'email_reference'}
+            # Move email from MCP to MCP-Done
+            email_id = email_ref.get('email_id')
+            try:
+                from gmail_client import GmailClient
+                gmail = GmailClient()
+                gmail.authenticate()
+                
+                # MCP label ID, MCP-Done label ID
+                MCP_LABEL = 'Label_6539888246357682322'
+                MCP_DONE_LABEL = 'Label_8695534432423572577'
+                
+                # Use thread-level modification to update ALL messages in thread
+                result = gmail.modify_thread_labels(
+                    thread_id=thread_id,
+                    add_labels=[MCP_DONE_LABEL],
+                    remove_labels=[MCP_LABEL]
+                )
+                
+                if result.get('success'):
+                    await self.telegram.send_response(
+                        chat_id, 
+                        f"✅ <b>Archived!</b>\n\n{subject}\n\nMoved to MCP-Done"
+                    )
+                else:
+                    await self.telegram.send_response(chat_id, f"Archive failed: {result.get('error')}")
+            except Exception as e:
+                logger.error(f"Archive error: {e}")
+                await self.telegram.send_response(chat_id, f"Archive error: {str(e)}")
+            
+            return {'handled': True, 'routed_to': 'email_reference', 'action': 'archived'}
 
         elif any(word in text_lower for word in ['forward', 'send to']):
             # Check if recipient is already in the text (e.g. "forward #1 to sarah@example.com")
@@ -1537,6 +2140,108 @@ Just ask naturally and I'll figure out what you need!"""
             self._context_store[user_id]['pending_forward'] = email_ref
             return {'handled': True, 'routed_to': 'email_reference', 'awaiting': 'forward_recipient'}
 
+        # === LOOP RELAY SKILL ===
+        # "relay to [original sender]" - when you looped someone in, now relay their response back to original
+        elif any(word in text_lower for word in ['relay', 'tell', 'send to original', 'loop back', 'respond to original']):
+            thread_id = email_ref.get('thread_id')
+            if thread_id:
+                try:
+                    import html
+                    from gmail_client import GmailClient
+                    gmail = GmailClient()
+                    gmail.authenticate()
+                    
+                    # Get thread to find original sender and latest response
+                    thread = gmail.service.users().threads().get(
+                        userId='me',
+                        id=thread_id
+                    ).execute()
+                    
+                    messages = thread.get('messages', [])
+                    
+                    # Find original sender (usually first message NOT from user)
+                    original_sender = None
+                    latest_response = None
+                    user_email = 'derek@oldcitycapital.com'  # Could make configurable
+                    
+                    for i, msg in enumerate(messages):
+                        headers = {h['name']: h['value'] for h in msg['payload']['headers']}
+                        from_addr = headers.get('From', '')
+                        if user_email.lower() not in from_addr.lower() and i > 0:
+                            if not original_sender:
+                                # Extract full name from "Name <email>" format (e.g., "Deborah Lee <deborah@...>")
+                                import re
+                                name_match = re.match(r'^([^<]+)', from_addr)
+                                if name_match:
+                                    original_sender = name_match.group(1).strip()  # "Deborah Lee"
+                                    original_email = from_addr.split('<')[1].rstrip('>') if '<' in from_addr else ''
+                                else:
+                                    # Fallback to email
+                                    match = re.search(r'<(.+?)>|^(.+?@.+?)$', from_addr)
+                                    original_sender = match.group(1) or match.group(2) if match else from_addr
+                            
+                            # Get the latest non-user message as the response to relay
+                            latest_response = msg
+                    
+                    if latest_response:
+                        # Get latest response body
+                        resp_headers = {h['name']: h['value'] for h in latest_response['payload']['headers']}
+                        resp_from = resp_headers.get('From', 'Unknown')
+                        
+                        # Extract body
+                        resp_body = ''
+                        if 'body' in latest_response['payload'] and 'data' in latest_response['payload']['body']:
+                            import base64
+                            resp_body = base64.urlsafe_b64decode(latest_response['payload']['body']['data']).decode('utf-8')
+                        elif 'parts' in latest_response['payload']:
+                            for part in latest_response['payload']['parts']:
+                                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+                                    import base64
+                                    resp_body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                                    break
+                        
+                        # Truncate if long
+                        if len(resp_body) > 800:
+                            resp_body = resp_body[:800] + "..."
+                        
+                        # Ask for confirmation to draft
+                        response = f"<b>Loop Relay Skill</b>\n\n"
+                        response += f"<i>Relay response from:</i> {html.escape(resp_from)}\n"
+                        response += f"<i>To original sender:</i> {html.escape(original_sender) if original_sender else '?'}\n\n"
+                        response += f"<b>Summary to relay:</b>\n{html.escape(resp_body)}\n\n"
+                        response += f"<i>Shall I draft this email to {html.escape(original_sender) if original_sender else 'the original sender'}?</i>"
+                        
+                        await self.telegram.send_response(chat_id, response)
+                        
+                        # Store for confirmation
+                        if user_id not in self._context_store:
+                            self._context_store[user_id] = {}
+                        
+                        # Extract first name for greeting
+                        first_name = original_sender.split()[0] if original_sender else 'there'
+                        
+                        self._context_store[user_id]['pending_relay'] = {
+                            'to': original_sender,
+                            'to_email': original_email if 'original_email' in dir() else original_sender,
+                            'first_name': first_name,
+                            'response_from': resp_from,
+                            'response_body': resp_body,
+                            'thread_id': thread_id,
+                            'subject': subject
+                        }
+                        return {'handled': True, 'routed_to': 'email_reference', 'awaiting': 'relay_confirm'}
+                    else:
+                        await self.telegram.send_response(chat_id, "Could not find a response to relay in this thread.")
+                        return {'handled': True, 'routed_to': 'email_reference'}
+                        
+                except Exception as e:
+                    logger.error(f"Relay error: {e}")
+                    await self.telegram.send_response(chat_id, f"Relay failed: {str(e)}")
+                    return {'handled': True, 'routed_to': 'email_reference', 'error': str(e)}
+            else:
+                await self.telegram.send_response(chat_id, "No thread found for this email.")
+                return {'handled': True, 'routed_to': 'email_reference'}
+
         elif any(word in text_lower for word in ['skip', 'later', 'not now', 'ignore']):
             await self.telegram.send_response(chat_id, f"Skipped: {subject}")
             return {'handled': True, 'routed_to': 'email_reference'}
@@ -1564,12 +2269,68 @@ Just ask naturally and I'll figure out what you need!"""
                 return {'handled': True, 'routed_to': 'email_reference'}
 
         else:
-            # Show options
-            await self.telegram.send_response(
-                chat_id,
-                f"<b>{subject}</b>\nFrom: {email_ref.get('sender', 'Unknown')}\n\n<i>What would you like to do? reply, archive, forward, or skip</i>"
-            )
-            return {'handled': True, 'routed_to': 'email_reference'}
+            # No action specified - show the most recent message in the thread
+            thread_id = email_ref.get('thread_id')
+            if thread_id:
+                try:
+                    import html
+                    from gmail_client import GmailClient
+                    gmail = GmailClient()
+                    gmail.authenticate()
+                    
+                    # Get the thread
+                    thread = gmail.service.users().threads().get(
+                        userId='me',
+                        id=thread_id
+                    ).execute()
+                    
+                    messages = thread.get('messages', [])
+                    if messages:
+                        # Get the most recent message (last in the list)
+                        latest = messages[-1]
+                        headers = {h['name']: h['value'] for h in latest['payload']['headers']}
+                        
+                        from_email = headers.get('From', 'Unknown')
+                        date = headers.get('Date', '')
+                        
+                        # Get body
+                        body = ''
+                        if 'body' in latest['payload'] and 'data' in latest['payload']['body']:
+                            import base64
+                            body = base64.urlsafe_b64decode(latest['payload']['body']['data']).decode('utf-8')
+                        elif 'parts' in latest['payload']:
+                            for part in latest['payload']['parts']:
+                                if part.get('mimeType') == 'text/plain' and 'data' in part.get('body', {}):
+                                    import base64
+                                    body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                                    break
+                        
+                        # Truncate if too long
+                        if len(body) > 1500:
+                            body = body[:1500] + "..."
+                        
+                        response = f"<b>Latest in thread:</b>\n"
+                        response += f"<i>From: {html.escape(from_email)}</i>\n"
+                        response += f"<i>{html.escape(date)}</i>\n\n"
+                        response += f"{html.escape(body)}\n\n"
+                        response += f"<i>Reply, archive, forward, or relay to original sender?</i>"
+                        
+                        await self.telegram.send_response(chat_id, response)
+                        return {'handled': True, 'routed_to': 'email_reference', 'action': 'show'}
+                    else:
+                        await self.telegram.send_response(chat_id, "No messages found in thread.")
+                        return {'handled': True, 'routed_to': 'email_reference'}
+                except Exception as e:
+                    logger.error(f"Error fetching thread: {e}")
+                    await self.telegram.send_response(chat_id, f"Could not load thread: {str(e)}")
+                    return {'handled': True, 'routed_to': 'email_reference', 'error': str(e)}
+            else:
+                # Fallback - show basic info
+                await self.telegram.send_response(
+                    chat_id,
+                    f"<b>{subject}</b>\nFrom: {email_ref.get('sender', 'Unknown')}\n\n<i>What would you like to do? reply, archive, forward</i>"
+                )
+                return {'handled': True, 'routed_to': 'email_reference'}
 
     async def _handle_digest(self, chat_id: int) -> Dict[str, Any]:
         """Handle morning digest/email summary request."""
@@ -1673,11 +2434,12 @@ Just ask naturally and I'll figure out what you need!"""
                 email_references.append({
                     'number': idx,
                     'email_id': email.get('id'),
+                    'thread_id': email.get('thread_id'),
                     'subject': subject,
                     'sender': sender
                 })
 
-            response += "\n<i>Say '#1 reply' or '#2 archive' or 'draft response to #3'</i>"
+            response += "\n<i>Say '#1 reply' or '#2 archive' or '#3 relay' to send response to original sender</i>"
 
             # Store references for #1 syntax
             self._store_email_references(user_id, email_references)
@@ -1689,6 +2451,443 @@ Just ask naturally and I'll figure out what you need!"""
             logger.error(f"Error in MCP inbox: {e}", exc_info=True)
             await self.telegram.send_response(chat_id, f"Error fetching emails: {str(e)}")
             return {'handled': True, 'routed_to': 'mcp_inbox', 'error': str(e)}
+
+    async def _handle_invoice_processing(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """Process invoice workflow: find invoice email → extract data → create task/draft."""
+        try:
+            import html
+            from gmail_client import GmailClient
+            from LLM.gemini_client import GeminiClient
+
+            gmail = GmailClient()
+            
+            # Search for invoice-related emails in MCP
+            await self.telegram.send_response(chat_id, "🔍 <b>Searching for invoices...</b>")
+            
+            # Search MCP for invoice emails
+            emails = gmail.search_emails(
+                reference='invoice OR payment OR fees OR mgmt',
+                search_type='keyword',
+                max_results=5,
+                days_back=30
+            )
+
+            if not emails:
+                await self.telegram.send_response(chat_id, "No invoice emails found in MCP folder.")
+                return {'handled': True, 'routed_to': 'invoice_process'}
+
+            # Show invoice options to user
+            response = "<b>📄 Invoice Emails Found</b>\n\n"
+            invoice_refs = []
+
+            for idx, email in enumerate(emails, 1):
+                sender = email.get('sender_name', email.get('sender_email', 'Unknown'))
+                subject = email.get('subject', 'No subject')[:50]
+                snippet = email.get('snippet', '')[:100]
+
+                response += f"<b>{idx}.</b> {html.escape(subject)}\n"
+                response += f"    From: {html.escape(sender)}\n"
+                response += f"    {html.escape(snippet)}...\n\n"
+
+                invoice_refs.append({
+                    'number': idx,
+                    'email_id': email.get('id'),
+                    'thread_id': email.get('thread_id'),
+                    'subject': subject,
+                    'sender': sender,
+                    'body': email.get('body', '')
+                })
+
+            response += "<i>Say '#1 process' to extract invoice data, or '#1 draft' to create a reply</i>"
+
+            # Store references
+            self._store_email_references(user_id, invoice_refs)
+            
+            # Also store in context for invoice-specific actions
+            if user_id not in self._context_store:
+                self._context_store[user_id] = {}
+            self._context_store[user_id]['invoice_refs'] = invoice_refs
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'invoice_process', 'invoices': invoice_refs}
+
+        except Exception as e:
+            logger.error(f"Error in invoice processing: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error processing invoices: {str(e)}")
+            return {'handled': True, 'routed_to': 'invoice_process', 'error': str(e)}
+
+    async def _handle_invoice_extract(self, ref_num: int, email_ref: Dict, chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Extract invoice data using Gemini."""
+        try:
+            import html
+            from gmail_client import GmailClient
+            from LLM.gemini_client import GeminiClient
+
+            gmail = GmailClient()
+            gmail.authenticate()
+            
+            subject = email_ref.get('subject', 'Unknown')
+            email_id = email_ref.get('email_id')
+            
+            await self.telegram.send_response(chat_id, f"📊 <b>Extracting invoice data...</b>\n\n{subject}")
+            
+            # Get full email content
+            email_data = gmail.get_email(email_id)
+            email_body = email_data.get('body', '') if email_data else ''
+            
+            if not email_body:
+                await self.telegram.send_response(chat_id, "Could not extract email body.")
+                return {'handled': True, 'routed_to': 'invoice_process', 'error': 'no_body'}
+            
+            # Use Gemini to extract invoice data
+            gemini = GeminiClient()
+            extraction_prompt = f"""Extract the following from this invoice email:
+- Vendor name
+- Invoice amount
+- Due date
+- Any other relevant payment details
+
+Format as a structured response. If a field is not found, say "Not specified".
+
+Email content:
+{email_body[:3000]}"""
+            
+            extracted = gemini.generate(extraction_prompt)
+            
+            response = f"<b>📄 Invoice Data Extracted</b>\n\n"
+            response += f"<b>Subject:</b> {html.escape(subject)}\n\n"
+            response += f"<b>Extracted Data:</b>\n{html.escape(extracted)}\n\n"
+            response += "<i>Say '#1 draft' to create a payment confirmation reply</i>"
+            
+            # Store extracted data
+            if user_id not in self._context_store:
+                self._context_store[user_id] = {}
+            self._context_store[user_id]['last_extracted_invoice'] = {
+                'subject': subject,
+                'data': extracted,
+                'email_ref': email_ref
+            }
+            
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'invoice_process', 'action': 'extracted', 'data': extracted}
+            
+        except Exception as e:
+            logger.error(f"Error extracting invoice: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Extraction error: {str(e)}")
+            return {'handled': True, 'routed_to': 'invoice_process', 'error': str(e)}
+
+    async def _handle_invoice_draft(self, ref_num: int, email_ref: Dict, text: str, chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Create invoice response draft."""
+        try:
+            import html
+            import json
+            import os
+            from gmail_client import GmailClient
+            from LLM.ollama_client import OllamaClient
+
+            gmail = GmailClient()
+            gmail.authenticate()
+            
+            subject = email_ref.get('subject', 'Unknown')
+            email_id = email_ref.get('email_id')
+            thread_id = email_ref.get('thread_id')
+            
+            # Get extracted data if available
+            extracted_data = None
+            if user_id in self._context_store:
+                extracted_data = self._context_store[user_id].get('last_extracted_invoice', {})
+            
+            await self.telegram.send_response(chat_id, f"✍️ <b>Drafting invoice response...</b>\n\n{subject}")
+            
+            # Get sender info
+            email_data = gmail.get_email(email_id)
+            sender_email = email_data.get('sender_email', '') if email_data else ''
+            
+            # Load personality for voice
+            personality_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), 'playbook', 'Personality.json')
+            try:
+                with open(personality_path) as f:
+                    personality = json.load(f)
+                email_style = personality.get('email_style', {})
+            except:
+                email_style = {}
+            
+            # Use LLM to draft with voice
+            draft_prompt = f"""Write a professional payment confirmation email from Derek at Old City Securities.
+
+Subject: {subject}
+Extracted invoice data: {extracted_data.get('data', 'See email') if extracted_data else 'See email'}
+
+Derek's style:
+- Start with Hi [Name],
+- Be concise and professional
+- Acknowledge the invoice
+- Confirm payment will be processed
+- End with Let me know if you need anything else!
+
+Write the draft:"""
+            
+            try:
+                ollama = OllamaClient()
+                drafted = ollama.generate(draft_prompt, max_tokens=300)
+                drafted = drafted.strip()
+            except Exception as e:
+                logger.warning(f"LLM draft failed: {e}")
+                drafted = f"Hi,\n\nThank you for the invoice. We will process the payment according to the terms outlined.\n\nLet me know if you need anything else!\n\nBest,\nDerek"
+            
+            # Create draft
+            result = gmail.create_draft(
+                to=sender_email,
+                subject=f"Re: {subject}",
+                body=drafted,
+                thread_id=thread_id
+            )
+            
+            if result.get('success'):
+                await self.telegram.send_response(
+                    chat_id,
+                    f"✅ <b>Draft created!</b>\n\nTo: {html.escape(sender_email)}\nSubject: Re: {subject}\n\n"
+                    f"<i>Review and send when ready.</i>"
+                )
+            else:
+                await self.telegram.send_response(chat_id, f"Draft failed: {result.get('error')}")
+            
+            return {'handled': True, 'routed_to': 'invoice_process', 'action': 'drafted'}
+            
+        except Exception as e:
+            logger.error(f"Error drafting invoice response: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Draft error: {str(e)}")
+            return {'handled': True, 'routed_to': 'invoice_process', 'error': str(e)}
+
+    async def _handle_deal_invoice(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
+        """
+        Handle deal invoice processing for Old City Capital invoices.
+        
+        Trigger: "/invoice [Company]", "do this invoice [Company]", "Process: [Company]"
+        
+        Rules:
+        - Rule #1: Output fee type (Management Fee, Placement Fee, Performance Fee, Retainer)
+        - Rule #2: Always include invoices@oldcitycapital.com + rep email
+        - Rule #3: Read ALL messages in thread - most recent wins
+        - Rule #4: Parse entire thread, track updates, output final confirmed value
+        - Rule #5: Include explicitly named recipients (HIGH PRIORITY)
+        """
+        import re
+        import html
+        
+        # Constants
+        ALWAYS_RECIPIENTS = ["invoices@oldcitycapital.com"]
+        EXCLUDE_EMAILS = ["derek@oldcitycapital.com", "eytan@oldcitycapital.com"]
+        
+        try:
+            from gmail_client import GmailClient
+            
+            gmail = GmailClient()
+            
+            # === Step 1: Parse company name from input ===
+            company = ""
+            text_lower = text.lower()
+            if text_lower.startswith('/invoice '):
+                company = text[9:].strip()
+            elif 'do this invoice' in text_lower:
+                match = re.search(r'do this invoice\s+(.+)', text, re.IGNORECASE)
+                company = match.group(1).strip() if match else ""
+            elif text_lower.startswith('invoice '):
+                company = text[8:].strip()
+            elif 'process:' in text_lower:
+                match = re.search(r'process:\s*(.+)', text, re.IGNORECASE)
+                company = match.group(1).strip() if match else ""
+            
+            if not company:
+                await self.telegram.send_response(
+                    chat_id,
+                    "Please specify the company name. E.g., '/invoice Barsys'"
+                )
+                return {'handled': True, 'routed_to': 'deal_invoice', 'error': 'no_company'}
+            
+            await self.telegram.send_response(
+                chat_id,
+                f"🔍 Processing deal invoice for: <b>{html.escape(company)}</b>\n<i>Searching emails...</i>"
+            )
+            
+            # === Step 2: Search Gmail for email thread (ANY rep, not just Michael) ===
+            # Search by company name - will match any sender
+            search_query = f"{company}"
+            emails = gmail.search_emails(search_query, search_type='keyword', max_results=10)
+            
+            if not emails:
+                await self.telegram.send_response(
+                    chat_id,
+                    f"No email found matching '{company}'. Please verify the company name."
+                )
+                return {'handled': True, 'routed_to': 'deal_invoice', 'error': 'no_email'}
+            
+            # Use the most recent matching email
+            email = emails[0]
+            subject = email.get('subject', 'No subject')
+            thread_id = email.get('thread_id')
+            
+            # === Step 3: Read FULL thread (Rule #3 - Critical) ===
+            thread = gmail.service.users().threads().get(userId='me', id=thread_id).execute()
+            messages = thread.get('messages', [])
+            
+            # Build full thread text - read ALL messages
+            full_thread_text = ""
+            for msg in messages:
+                headers = {h['name']: h['value'] for h in msg['payload']['headers']}
+                body = msg.get('snippet', '')
+                full_thread_text += f"From: {headers.get('From', '')}\n{body}\n---\n"
+            
+            # Extract sender/rep email from first message
+            first_headers = {h['name']: h['value'] for h in messages[0]['payload']['headers']}
+            from_header = first_headers.get('From', '')
+            rep_email_match = re.search(r'[\w\.-]+@[\w\.-]+', from_header)
+            rep_email = rep_email_match.group() if rep_email_match else ""
+            
+            # === Step 4: Extract investor data with FULL thread rules ===
+            from LLM.gemini_client import GeminiClient
+            gemini = GeminiClient()
+            
+            extraction_prompt = f"""Extract investor data from this email thread about {company}.
+
+CRITICAL RULES (MUST FOLLOW):
+1. Read ALL messages in the thread, from OLDEST to NEWEST
+2. Do NOT stop at the first plausible answer
+3. Track every amount mentioned - amounts may change mid-thread
+4. If multiple values conflict, the MOST RECENT message overrides earlier values
+5. Output ONLY the FINAL confirmed value (not early mentions)
+
+For each investor, find:
+- Name
+- Final Investment amount (in dollars)
+
+Return as JSON list:
+[{{"name": "Investor Name", "amount": 500000}}, ...]
+
+Flatten complex deals: only Name + Total Amount
+Skip warrants, notes breakdowns, tranche details"""
+
+            extraction_result = await gemini.agenerate(
+                prompt=extraction_prompt + "\n\nEmail thread:\n" + full_thread_text[:10000],
+                max_tokens=2500
+            )
+            
+            # Parse investors from LLM response
+            investors = []
+            try:
+                import json
+                json_match = re.search(r'\[[\s\S]*\]', extraction_result.get('text', '[]'))
+                if json_match:
+                    investors = json.loads(json_match.group())
+            except:
+                investors = []
+            
+            # === Step 5: Identify fee type (Rule #1) ===
+            fee_type_prompt = f"""What type of fee is this deal? 
+
+Look at the email thread context:
+- Placement Fee - rep brought investors to capital raise (most common)
+- Management Fee - ongoing asset management / "Revenue Type: Management Fees"
+- Performance Fee - carried interest/profit-share
+- Retainer - fixed periodic fee
+
+Return ONLY the fee type (e.g., "Placement Fee" or "Management Fee")"""
+
+            fee_result = await gemini.agenerate(
+                prompt=fee_type_prompt + "\n\nEmail thread:\n" + full_thread_text[:5000],
+                max_tokens=100
+            )
+            
+            fee_type = "Placement Fee"
+            fee_text = fee_result.get('text', '').lower()
+            if 'management' in fee_text:
+                fee_type = "Management Fee"
+            elif 'performance' in fee_text:
+                fee_type = "Performance Fee"
+            elif 'retainer' in fee_text:
+                fee_type = "Retainer"
+            
+            # === Step 6: Format investor list with proper amount handling ===
+            def format_amount(amount):
+                """Format amount: $2,000,000 → $2M, $255,000 → $255K, $210,055 → $210K"""
+                if isinstance(amount, str):
+                    amount_str = amount.replace(',', '').replace('$', '')
+                    try:
+                        amount = float(amount_str)
+                    except:
+                        amount = 0
+                
+                if amount >= 1_000_000:
+                    # Round to nearest M
+                    formatted = round(amount / 1_000_000)
+                    return f"${formatted}M"
+                else:
+                    # Round to nearest K (e.g., $210,055 → $210K)
+                    formatted = int(amount / 1000)
+                    return f"${formatted}K"
+            
+            # Determine output format - always use "Investment" suffix unless Management Fee explicitly
+            use_breakdown = "breakdown" in fee_text.lower() or not investors
+            use_investment_suffix = True  # Default to "Investment"
+            
+            investor_lines = []
+            for inv in investors:
+                name = inv.get('name', 'Unknown')
+                amount = inv.get('amount', 0)
+                formatted_amt = format_amount(amount)
+                # Always use "Investment" suffix (user preference)
+                investor_lines.append(f"{name} - {formatted_amt} Investment")
+            
+            # === Step 7: Compile recipients (Rule #2 + Rule #5) ===
+            all_emails = set()
+            
+            # Add rep's email (HIGH PRIORITY)
+            if rep_email:
+                all_emails.add(rep_email.lower())
+            
+            # Get all emails from thread headers
+            for msg in messages:
+                headers = {h['name']: h['value'] for h in msg['payload']['headers']}
+                for header in ['From', 'To', 'Cc']:
+                    matches = re.findall(r'[\w\.-]+@[\w\.-]+', headers.get(header, ''))
+                    for e in matches:
+                        e = e.lower()
+                        if not any(ex in e for ex in EXCLUDE_EMAILS):
+                            all_emails.add(e)
+            
+            # Always include invoices@oldcitycapital.com
+            for r in ALWAYS_RECIPIENTS:
+                all_emails.add(r)
+            
+            # Remove excludes
+            final_recipients = sorted([e for e in all_emails if not any(ex in e for ex in EXCLUDE_EMAILS)])
+            recipient_text = ", ".join(final_recipients)
+            
+            # === Step 8: Output two blocks (NO commentary) ===
+            if use_breakdown:
+                output = f"Breakdown:\n" + "\n".join(investor_lines)
+            elif "management" in fee_type.lower():
+                output = f"{fee_type}: {company}\n" + "\n".join(investor_lines)
+            else:
+                output = f"Placement Fee: {company}\n" + "\n".join(investor_lines)
+            
+            output += f"\n---\n{recipient_text}"
+            
+            await self.telegram.send_response(chat_id, output)
+            
+            return {
+                'handled': True,
+                'routed_to': 'deal_invoice',
+                'company': company,
+                'fee_type': fee_type,
+                'investor_count': len(investors),
+                'rep_email': rep_email
+            }
+            
+        except Exception as e:
+            logger.error(f"Error in deal invoice: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error: {str(e)}")
+            return {'handled': True, 'routed_to': 'deal_invoice', 'error': str(e)}
 
     def _suggest_email_action(self, email: Dict) -> str:
         """Generate proactive suggestion for an email."""
@@ -1716,6 +2915,238 @@ Just ask naturally and I'll figure out what you need!"""
             self._context_store[user_id] = {}
         self._context_store[user_id]['emails'] = references
         self._context_store[user_id]['emails_timestamp'] = time.time()
+
+    async def _handle_todo_show_email(self, task_ref: Dict, chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Show the actual email thread for a todo task (MCP or SharePoint)."""
+        try:
+            import html
+            import sys
+            import os
+            
+            # Add LLM path
+            bot_root = os.path.dirname(os.path.dirname(__file__))
+            llm_path = os.path.join(bot_root, 'LLM')
+            if llm_path not in sys.path:
+                sys.path.insert(0, llm_path)
+            
+            from gmail_client import GmailClient
+
+            subject = task_ref.get('subject', '')
+            task_title = task_ref.get('title', '')
+            email_id = task_ref.get('email_id')  # Exact email ID for MCP tasks
+            thread_id = task_ref.get('thread_id')  # Direct thread ID
+
+            await self.telegram.send_response(
+                chat_id,
+                f"🔍 Loading email..."
+            )
+
+            gmail = GmailClient()
+            gmail.authenticate()
+
+            # If we have exact email_id, fetch directly
+            if email_id:
+                try:
+                    email = gmail.service.users().messages().get(userId='me', id=email_id).execute()
+                    thread_id = email.get('threadId')
+                    subject = email.get('subject', subject)
+                except:
+                    # Fallback to subject search
+                    search_results = gmail.search_emails(subject, search_type='subject', max_results=1)
+                    if not search_results:
+                        await self.telegram.send_response(chat_id, f"⚠️ Email not found")
+                        return {'handled': True, 'routed_to': 'todo_show_email', 'error': 'not_found'}
+                    email = search_results[0]
+                    thread_id = email.get('thread_id')
+            elif thread_id:
+                # Direct thread ID
+                pass
+            else:
+                # Fallback to subject search
+                search_results = gmail.search_emails(subject, search_type='subject', max_results=1)
+                if not search_results:
+                    await self.telegram.send_response(chat_id, f"⚠️ Email not found")
+                    return {'handled': True, 'routed_to': 'todo_show_email', 'error': 'not_found'}
+                email = search_results[0]
+                thread_id = email.get('thread_id')
+
+            # Get the full thread
+            thread = gmail.service.users().threads().get(userId='me', id=thread_id).execute()
+            messages = thread.get('messages', [])
+
+            # Show last 2 messages
+            response = f"📧 <b>Thread:</b> {html.escape(subject)}\n\n"
+            
+            # Get last 2 messages (newest first)
+            recent_msgs = messages[-2:] if len(messages) >= 2 else messages
+            for msg in recent_msgs:
+                headers = {h['name']: h['value'] for h in msg['payload']['headers']}
+                from_addr = headers.get('From', 'Unknown')
+                date = headers.get('Date', '')
+                snippet = msg.get('snippet', '')[:150]
+                
+                response += f"📨 <b>{html.escape(from_addr)}</b>\n"
+                response += f"   {html.escape(snippet)}...\n\n"
+
+            # Store reference for subsequent actions
+            email_ref = {
+                'number': 1,
+                'email_id': email_id,
+                'thread_id': thread_id,
+                'subject': subject,
+                'sender': email.get('sender_email', '')
+            }
+            
+            if user_id not in self._context_store:
+                self._context_store[user_id] = {}
+            self._context_store[user_id]['emails'] = [email_ref]
+            self._context_store[user_id]['emails_timestamp'] = time.time()
+
+            # Show the task context too
+            if task_title:
+                response += f"📋 <b>Task:</b> {html.escape(task_title)}\n\n"
+
+            response += "💬 <b>Now what?</b>\n"
+            response += f"• '#1 draft a reply [your gist]' — reply in your voice\n"
+            response += f"• '#1 relay' — loop someone in\n"
+            response += f"• '#1 archive' — mark done"
+
+            await self.telegram.send_response(chat_id, response)
+            return {'handled': True, 'routed_to': 'todo_show_email', 'thread_shown': True}
+
+        except Exception as e:
+            logger.error(f"Error showing todo email: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Error: {str(e)}")
+            return {'handled': True, 'routed_to': 'todo_show_email', 'error': str(e)}
+
+    async def _handle_todo_email_draft(self, task_ref: Dict, reply_gist: str, chat_id: int, user_id: int) -> Dict[str, Any]:
+        """Draft an email reply from a SharePoint todo task."""
+        try:
+            import html
+            import json
+            import os
+            from gmail_client import GmailClient
+            from LLM.ollama_client import OllamaClient
+
+            subject = task_ref.get('subject', '')
+            task_title = task_ref.get('title', '')  # Description
+
+            await self.telegram.send_response(
+                chat_id,
+                f"💌 Drafting reply to: {subject}\n\nGist: {reply_gist[:50]}...\n\nSearching for email thread..."
+            )
+
+            gmail = GmailClient()
+            gmail.authenticate()
+
+            # Find the email thread by subject
+            search_results = gmail.search_emails(
+                reference=subject,
+                search_type='subject',
+                max_results=1
+            )
+
+            if not search_results:
+                await self.telegram.send_response(
+                    chat_id,
+                    f"⚠️ Couldn't find email thread: {subject}\n\nTry replying directly?"
+                )
+                return {'handled': True, 'routed_to': 'todo_draft', 'error': 'email_not_found'}
+
+            email = search_results[0]
+            thread_id = email.get('thread_id')
+            email_id = email.get('id')
+
+            # Get sender info
+            sender = email.get('sender_name') or email.get('sender_email', 'there')
+            if '@' in sender:
+                first_name = sender.split('@')[0].replace('.', ' ').title().split()[0]
+            else:
+                first_name = sender.split()[0] if sender else 'there'
+
+            # Load personality for voice
+            personality_path = os.path.join(
+                os.path.dirname(os.path.dirname(__file__)),
+                'playbook', 'Personality.json'
+            )
+            try:
+                with open(personality_path) as f:
+                    personality = json.load(f)
+                reply_style = personality.get('reply_style', {})
+                rules = reply_style.get('rules', [])
+            except:
+                rules = []
+
+            # Use LLM to draft with voice
+            rewrite_prompt = f"""Write a short professional email reply from Derek (at Old City Securities).
+
+Derek's style:
+- {rules[0] if len(rules) > 0 else 'Start with Hi [Name],'}
+- {rules[1] if len(rules) > 1 else 'Be concise and direct'}
+- {rules[2] if len(rules) > 2 else 'Acknowledge their message'}
+- {rules[3] if len(rules) > 3 else 'State your response clearly'}
+- {rules[4] if len(rules) > 4 else 'End with Let me know if you need anything else!'}
+
+Original email subject: {subject}
+Original task: {task_title}
+Derek's reply gist: {reply_gist}
+
+Write the reply from Derek's perspective to {first_name}:"""
+
+            try:
+                ollama = OllamaClient()
+                rewritten = ollama.generate(rewrite_prompt, max_tokens=300)
+                rewritten = rewritten.strip()
+                if not rewritten.startswith("Hi"):
+                    rewritten = f"Hi {first_name},\n\n" + rewritten
+            except Exception as e:
+                logger.warning(f"LLM reply failed: {e}")
+                rewritten = f"Hi {first_name},\n\n{reply_gist}\n\nLet me know if you need anything else!\n\nBest,\nDerek"
+
+            # Get thread to find recipient
+            thread = gmail.service.users().threads().get(userId='me', id=thread_id).execute()
+            messages = thread.get('messages', [])
+            
+            user_email = 'derek@oldcitycapital.com'
+            to_email = None
+            for msg in reversed(messages):
+                headers = {h['name']: h['value'] for h in msg['payload']['headers']}
+                from_addr = headers.get('From', '')
+                if user_email.lower() not in from_addr.lower():
+                    if '<' in from_addr:
+                        to_email = from_addr.split('<')[1].rstrip('>')
+                    else:
+                        to_email = from_addr
+                    break
+
+            if not to_email:
+                to_email = email.get('sender_email', '')
+
+            # Create draft
+            result = gmail.create_draft(
+                to=to_email,
+                subject=f"Re: {subject}",
+                body=rewritten,
+                thread_id=thread_id
+            )
+
+            if result.get('success'):
+                await self.telegram.send_response(
+                    chat_id,
+                    f"✅ <b>Draft created!</b>\n\n"
+                    f"To: {html.escape(to_email)}\n"
+                    f"Subject: Re: {subject}\n\n"
+                    f"<i>Review and send when ready.</i>"
+                )
+            else:
+                await self.telegram.send_response(chat_id, f"Draft failed: {result.get('error')}")
+
+            return {'handled': True, 'routed_to': 'todo_draft', 'drafted': True}
+
+        except Exception as e:
+            logger.error(f"Error drafting todo email: {e}", exc_info=True)
+            await self.telegram.send_response(chat_id, f"Draft error: {str(e)}")
+            return {'handled': True, 'routed_to': 'todo_draft', 'error': str(e)}
 
     async def _handle_idea_bounce(self, text: str, user_id: int, chat_id: int) -> Dict[str, Any]:
         """Handle idea bouncing / thinking through requests."""

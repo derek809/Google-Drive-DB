@@ -93,5 +93,34 @@
 "Mandate Review"
 ]
 },
+"loop_relay_style": {
+"description": "When Derek loops someone into a thread, gets a response, and needs to relay it back to the original sender",
+"example": "Hi Debbie, I wanted to follow up on our conversation regarding payment issues. Eytan mentioned that we will resend the wire minus the fee. Please let me know if you have any other further questions. Have a great day!",
+"template": "Hi [Name], I wanted to follow up on our conversation regarding [topic]. [Person looped in] mentioned that [their response]. Please let me know if you have any other further questions. Have a great day!",
+"rules": [
+"Start with Hi [First Name],",
+"Reference the topic briefly",
+"Name the person who provided the update",
+"State their update concisely",
+"End with Please let me know if you have any other further questions. Have a great day!",
+"Never copy the response literally - always synthesize"
+],
+"key_phrases": [
+"I wanted to follow up on our conversation",
+"[Name] mentioned that",
+"Please let me know if you have any other further questions",
+"Have a great day!"
+]
+},
+"reply_style": {
+"description": "When Derek is replying directly to an email (not relaying someone else's response)",
+"rules": [
+"Start with Hi [First Name],",
+"Be concise and direct",
+"Acknowledge their message",
+"State your response clearly",
+"End with Let me know if you need anything else! or Have a great day!"
+]
+},
 "confidence": 0.85
 }

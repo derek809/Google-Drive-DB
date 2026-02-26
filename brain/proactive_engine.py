@@ -50,6 +50,7 @@ class ProactiveEngine:
                 PROACTIVE_MAX_SUGGESTIONS_PER_DAY,
                 PROACTIVE_NO_REPLY_DAYS,
                 PROACTIVE_URGENT_HOURS,
+                PROACTIVE_OVERNIGHT_HOURS,
                 PROACTIVE_DRAFT_UNSENT_DAYS,
                 PROACTIVE_MORNING_DIGEST_HOUR,
             )
@@ -57,6 +58,7 @@ class ProactiveEngine:
             self.max_suggestions_per_day = PROACTIVE_MAX_SUGGESTIONS_PER_DAY
             self.no_reply_days_threshold = PROACTIVE_NO_REPLY_DAYS
             self.urgent_hour_start, self.urgent_hour_end = PROACTIVE_URGENT_HOURS
+            self.overnight_start, self.overnight_end = PROACTIVE_OVERNIGHT_HOURS
             self.draft_unsent_days_threshold = PROACTIVE_DRAFT_UNSENT_DAYS
             self.morning_digest_hour = PROACTIVE_MORNING_DIGEST_HOUR
         except ImportError as e:
@@ -200,6 +202,7 @@ class ProactiveEngine:
             try:
                 await self.check_no_reply_followup(item)
                 await self.check_urgent_eod(item)
+                await self.check_urgent_overnight(item)  # ← NEW
                 await self.check_draft_unsent(item)
                 await self.check_stale_thread(item)
             except Exception as e:

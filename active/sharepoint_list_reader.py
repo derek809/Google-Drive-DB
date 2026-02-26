@@ -287,3 +287,51 @@ class SharePointListReader:
         except Exception as exc:
             logger.error("Failed to complete task %s: %s", item_id, exc)
             raise
+
+    async def create_task(
+        self,
+        title: str,
+        subject: str = "",
+        description: str = "",
+        email_id: str = "",
+        status: str = "Not Started",
+    ) -> Dict[str, Any]:
+        """
+        Create a new task in SharePoint Action Items list.
+        
+        Args:
+            title: Task type - "Email" or "Manual"
+            subject: Email subject (for Email tasks)
+            description: Task description/what to do
+            email_id: Gmail message ID for reliable #N lookup
+            status: Task status (default: "Not Started")
+            
+        Returns:
+            Created item dict with id
+        """
+        list_id = self._action_items_list
+        
+        # Build fields payload
+        fields = {
+            "Title": title,
+            "field_1": subject,  # Email subject
+            "field_3": description,  # Task description
+            "field_6": status,  # Status
+        }
+        
+        # Add email ID for Email tasks (stored in a custom field if available)
+        # We'll use field_5 or similar for email_id
+        if email_id and title == "Email":
+            fields["field_5"] = email_id  # Store for reliable lookup
+        
+        payload = {"fields": fields}
+        
+        url = self._list_items_url(list_id)
+        
+        try:
+            result = await self._graph.post(url, data=payload)
+            logger.info("Created task: %s - %s", title, subject[:30])
+            return result
+        except Exception as exc:
+            logger.error("Failed to create task: %s", exc)
+            raise

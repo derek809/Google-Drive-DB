@@ -54,7 +54,7 @@ class GmailClient:
     SCOPES = [
         'https://www.googleapis.com/auth/gmail.readonly',
         'https://www.googleapis.com/auth/gmail.compose',
-        'https://www.googleapis.com/auth/gmail.modify'
+        'https://www.googleapis.com/auth/gmail.modify',
     ]
 
     def __init__(
@@ -75,14 +75,38 @@ class GmailClient:
                 "pip install google-auth google-auth-oauthlib google-api-python-client"
             )
 
-        # Try to import config for default paths
+        # Try to load from .env using dotenv (git-safe pattern)
         try:
-            from m1_config import GMAIL_CREDENTIALS_PATH, GMAIL_TOKEN_PATH
-            self.credentials_path = credentials_path or GMAIL_CREDENTIALS_PATH
-            self.token_path = token_path or GMAIL_TOKEN_PATH
+            import os
+            from dotenv import load_dotenv
+            
+            # Try to load .env from multiple locations
+            for env_path in ['.env', '../.env', '../../.env']:
+                if os.path.exists(env_path):
+                    load_dotenv(env_path)
+                    break
+            
+            # Use .env variables (git-safe - paths only, not secrets)
+            env_creds = os.getenv('GMAIL_CREDENTIALS')
+            env_token = os.getenv('GMAIL_TOKEN')
+            
+            if env_creds or env_token:
+                # Resolve relative to this file's location
+                base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+                self.credentials_path = credentials_path or (os.path.join(base_dir, env_creds) if env_creds else None)
+                self.token_path = token_path or (os.path.join(base_dir, env_token) if env_token else None)
+            else:
+                # Fallback: try importing from m1_config
+                raise ImportError("No .env variables")
         except ImportError:
-            self.credentials_path = credentials_path
-            self.token_path = token_path
+            # Last resort: try m1_config import
+            try:
+                from m1_config import GMAIL_CREDENTIALS_PATH, GMAIL_TOKEN_PATH
+                self.credentials_path = credentials_path or GMAIL_CREDENTIALS_PATH
+                self.token_path = token_path or GMAIL_TOKEN_PATH
+            except ImportError:
+                self.credentials_path = credentials_path
+                self.token_path = token_path
 
         self.service = None
         self._creds = None
@@ -295,26 +319,39 @@ class GmailClient:
             raise GmailClientError(f"Failed to get email: {e}")
 
     def _extract_body(self, payload: Dict) -> str:
-        """Extract email body from message payload."""
+        """Extract email body from message payload - handles nested multipart."""
         body = ""
 
+        # Direct body data
         if 'body' in payload and payload['body'].get('data'):
             body = base64.urlsafe_b64decode(payload['body']['data']).decode('utf-8')
+            if body.strip():
+                return body
 
-        elif 'parts' in payload:
+        # Process parts
+        if 'parts' in payload:
             for part in payload['parts']:
                 mime_type = part.get('mimeType', '')
 
+                # Plain text - extract directly
                 if mime_type == 'text/plain':
-                    if part['body'].get('data'):
+                    if part.get('body', {}).get('data'):
                         body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
-                        break
+                        if body.strip():
+                            return body
 
-                elif mime_type == 'multipart/alternative':
-                    # Recursive for nested parts
+                # HTML - use as fallback
+                elif mime_type == 'text/html':
+                    if part.get('body', {}).get('data'):
+                        body = base64.urlsafe_b64decode(part['body']['data']).decode('utf-8')
+                        if body.strip():
+                            return body
+
+                # Multipart types - recurse
+                elif 'parts' in part:
                     body = self._extract_body(part)
-                    if body:
-                        break
+                    if body.strip():
+                        return body
 
         return body
 
@@ -566,6 +603,32 @@ class GmailClient:
         return self.search_emails(query, search_type="keyword", max_results=max_results)
 
     # ==================
+    # SAFE EMAIL METHODS
+    # ==================
+
+    def draft_to_self(self, subject: str, body: str, attachment_path: str = None) -> Dict[str, Any]:
+        """
+        Safely create a draft to YOUR OWN inbox.
+        
+        This is the ONLY safe way to "email yourself" - it creates
+        a draft you can review before sending manually.
+
+        Args:
+            subject: Email subject
+            body: Email body text
+            attachment_path: Optional path to file to attach
+
+        Returns:
+            Dict with success status and draft info
+        """
+        return self.create_draft(
+            to="derek@oldcitycapital.com",  # Your email
+            subject=subject,
+            body=body,
+            attachment_path=attachment_path
+        )
+
+    # ==================
     # SEND MESSAGE
     # ==================
 
@@ -576,9 +639,13 @@ class GmailClient:
         body: str,
         thread_id: str = None,
         reply_to_message_id: str = None,
+        allow_send: bool = False,
     ) -> Dict[str, Any]:
         """
         Send an email message directly.
+
+        SAFETY GATE: By default, sending is DISABLED.
+        Must pass allow_send=True to bypass.
 
         For safety-aware sending, prefer execute_action() which applies
         the RiskLevel safety gate.
@@ -589,10 +656,18 @@ class GmailClient:
             body: Email body text
             thread_id: Optional thread ID (for replies)
             reply_to_message_id: Optional message ID being replied to
+            allow_send: Must be True to allow sending (default: False)
 
         Returns:
             Dict with success status, message_id, thread_id
         """
+        # Safety gate - require explicit allow_send
+        if not allow_send:
+            return {
+                'success': False,
+                'error': 'SAFETY: Direct send disabled. Use allow_send=True to override.'
+            }
+        
         self._ensure_authenticated()
 
         message = MIMEText(body)
@@ -636,6 +711,79 @@ class GmailClient:
 
         except HttpError as e:
             return {'success': False, 'error': str(e), 'error_type': 'HttpError'}
+
+    def add_labels(self, message_id: str, add_labels: List[str], remove_labels: List[str] = None) -> Dict[str, Any]:
+        """
+        Add and/or remove labels from a message.
+        
+        Args:
+            message_id: The Gmail message ID
+            add_labels: List of label IDs to add (e.g., ['Label_8695534432423572577'])
+            remove_labels: List of label IDs to remove (e.g., ['Label_6539888246357682322'])
+        
+        Returns:
+            Dict with success status
+        """
+        try:
+            self._ensure_authenticated()
+            
+            # Build the modification
+            modifications = {
+                'addLabelIds': add_labels,
+                'removeLabelIds': remove_labels or []
+            }
+            
+            result = self.service.users().messages().modify(
+                userId='me',
+                id=message_id,
+                body=modifications
+            ).execute()
+            
+            return {'success': True, 'message_id': message_id, 'labels': result.get('labelIds', [])}
+            
+        except HttpError as e:
+            return {'success': False, 'error': str(e)}
+
+    def modify_thread_labels(
+        self,
+        thread_id: str,
+        add_labels: List[str],
+        remove_labels: List[str] = None
+    ) -> Dict[str, Any]:
+        """
+        Add and/or remove labels from ALL messages in a thread at once.
+        
+        Use this instead of add_labels() when archiving/moving emails
+        to ensure the label change applies to every message in the thread.
+        
+        Args:
+            thread_id: The Gmail thread ID
+            add_labels: List of label IDs to add (e.g., [MCP_DONE_LABEL])
+            remove_labels: List of label IDs to remove (e.g., [MCP_LABEL])
+        
+        Returns:
+            Dict with success status and messages_modified count
+        """
+        try:
+            self._ensure_authenticated()
+            
+            result = self.service.users().threads().modify(
+                userId='me',
+                id=thread_id,
+                body={
+                    'addLabelIds': add_labels,
+                    'removeLabelIds': remove_labels or []
+                }
+            ).execute()
+            
+            return {
+                'success': True,
+                'thread_id': thread_id,
+                'messages_modified': len(result.get('messages', []))
+            }
+            
+        except HttpError as e:
+            return {'success': False, 'error': str(e)}
 
     # ==================
     # ACTION DISPATCHER (with safety gate)

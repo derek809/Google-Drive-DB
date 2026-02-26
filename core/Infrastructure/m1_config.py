@@ -3,12 +3,11 @@ Mode 4 Configuration - M1 MacBook
 Settings for Telegram bot, Gmail, Sheets, and Ollama integration.
 """
 
-
+import os
 
 # Load environment variables from .env file
 try:
     from dotenv import load_dotenv
-    import os
     
     # 1. Get the folder where this file is (core/Infrastructure)
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -213,6 +212,9 @@ FALLBACK_CHAIN = ["claude", "kimi", "ollama"]
 
 # SmartParser (Natural Language Parser)
 SMART_PARSER_ENABLED = True
+
+# Proactive Engine - overnight hours for urgent notifications
+PROACTIVE_OVERNIGHT_HOURS = (21, 7)  # 9pm to 7am for midnight-wrap overnight detection
 SMART_PARSER_MODEL = "qwen2.5:3b"
 SMART_PARSER_FALLBACK = True
 

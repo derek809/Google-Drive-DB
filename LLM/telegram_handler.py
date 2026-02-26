@@ -265,6 +265,7 @@ class TelegramHandler:
         self.application.add_handler(CommandHandler("help", self._cmd_help))
         self.application.add_handler(CommandHandler("status", self._cmd_status))
         self.application.add_handler(CommandHandler("retry", self._cmd_retry))
+        self.application.add_handler(CommandHandler("invoice", self._cmd_invoice))
 
         # Message handler for processing emails
         self.application.add_handler(
@@ -357,6 +358,53 @@ class TelegramHandler:
             "Retry not implemented yet. "
             "Send the email reference again to reprocess."
         )
+
+    async def _cmd_invoice(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
+        """Handle /invoice command - full pipeline from extraction to send"""
+        user = update.effective_user
+
+        if not self._is_authorized(user.id):
+            await update.message.reply_text("Unauthorized.")
+            return
+
+        # Get the invoice data after /invoice
+        text = update.message.text
+        invoice_data = text.replace('/invoice', '').strip()
+
+        if not invoice_data:
+            await update.message.reply_text(
+                "Usage: /invoice [paste invoice request form data]\n\n"
+                "Example: /invoice Invoice Request Form: Submission #131 Client Name Test..."
+            )
+            return
+
+        # Import and run the pipeline
+        try:
+            import sys
+            sys.path.insert(0, '/Users/work/Telgram bot/core')
+            from invoice_pipeline import extract_invoice_data, format_locked_invoice, send_to_inbox
+
+            # Extract data
+            data = extract_invoice_data(invoice_data)
+
+            # Format for preview
+            preview = format_locked_invoice(data)
+
+            # Send preview with options
+            keyboard = [
+                [InlineKeyboardButton("✅ Send to Me", callback_data=f"invoice:send:{data['submission']}")],
+                [InlineKeyboardButton("✏️ Edit", callback_data=f"invoice:edit:{data['submission']}")],
+                [InlineKeyboardButton("🗑️ Stop", callback_data=f"invoice:stop:{data['submission']}")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+
+            await update.message.reply_text(
+                preview + "\n\nWhat would you like to do?",
+                reply_markup=reply_markup
+            )
+
+        except Exception as e:
+            await update.message.reply_text(f"Error processing invoice: {str(e)}")
 
     async def _handle_message(self, update: Update, context: ContextTypes.DEFAULT_TYPE):
         """Handle incoming text messages."""
@@ -625,6 +673,8 @@ class TelegramHandler:
 
         if action_type == 'draft':
             await self._handle_draft_callback(query, parts)
+        elif action_type == 'invoice':
+            await self._handle_invoice_callback(query, parts)
         else:
             await query.edit_message_text(f"Unknown action: {action_type}")
 
@@ -717,6 +767,50 @@ class TelegramHandler:
         await query.edit_message_text(
             "All AI models are currently unavailable. Please try again later."
         )
+
+    async def _handle_invoice_callback(self, query, parts: List[str]):
+        """Handle invoice button callbacks."""
+        if len(parts) < 3:
+            await query.edit_message_text("Invalid invoice callback.")
+            return
+
+        action = parts[1]
+        submission = parts[2]
+
+        if action == 'send':
+            # Send the invoice to user's inbox
+            try:
+                import sys
+                sys.path.insert(0, '/Users/work/Telgram bot/core')
+                from invoice_pipeline import extract_invoice_data, send_to_inbox
+
+                # Get stored data from session or re-extract
+                # For now, send confirmation
+                result = send_to_invoice({'submission': submission, 'client_name': 'From callback'})
+
+                if result.get('success'):
+                    await query.edit_message_text(
+                        f"✅ INVOICE #{submission} SENT\n\n"
+                        f"Check your inbox: derek@oldcitycapital.com"
+                    )
+                else:
+                    await query.edit_message_text(
+                        f"⚠️ Invoice #{submission} queued.\n"
+                        f"Result: {result}"
+                    )
+            except Exception as e:
+                await query.edit_message_text(f"Error sending invoice: {str(e)}")
+
+        elif action == 'edit':
+            await query.edit_message_text(
+                f"Invoice #{submission} - Edit mode\n\n"
+                f"Send the updated data and I'll regenerate."
+            )
+
+        elif action == 'stop':
+            await query.edit_message_text(
+                f"❌ Invoice #{submission} discarded."
+            )
 
     async def _draft_with_ollama_inner(self, ctx: Dict[str, Any], draft_id: str) -> Optional[Dict]:
         """Generate draft using Ollama (internal, returns result dict)."""
